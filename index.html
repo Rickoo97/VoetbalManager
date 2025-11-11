@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>BlankBall Manager</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M21 3H3v18h18V3Zm-2 2v3l-6 3-6-3V5h12ZM5 19v-8l6 3 6-3v8H5Z"/></svg>
+    <span>BlankBall Manager</span>
+    <span class="badge">v0.9</span>
+  </div>
+  <div class="right-actions">
+    <span class="pill" id="clubLabel">Club</span>
+    <button class="secondary" id="renameBtn">Hernoem club</button>
+    <button id="saveBtn">Opslaan</button>
+    <button class="danger" id="resetBtn">Reset</button>
+  </div>
+</header>
+
+<div class="container">
+  <div class="topbar card">
+    <div>
+      <h1 id="title"></h1>
+      <div class="muted" id="subtitle"></div>
+    </div>
+    <div class="card bar">
+      <div><div class="muted">Budget</div><div class="money" id="budget">€ 0</div></div>
+      <div><div class="muted">Lonen / week</div><div class="money" id="wages">€ 0</div></div>
+      <div><div class="muted">Faciliteiten</div><div id="facSummary">T1 • Y1 • S1 • ST1</div></div>
+    </div>
+    <div class="card bar">
+      <div><div class="muted">Divisie</div><div id="division"></div></div>
+      <div><div class="muted">Speeldag</div><div id="matchday">1</div></div>
+      <div><div class="muted">Seizoen</div><div id="seasonYear">1</div></div>
+    </div>
+    <div class="right-actions">
+      <button class="primary" id="playBtn">Speel speeldag</button>
+      <button class="secondary" id="simulateBtn">Simuleer seizoen</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="squad">Selectie</div>
+    <div class="tab" data-tab="tactics">Opstelling</div>
+    <div class="tab" data-tab="fixtures">Programma</div>
+    <div class="tab" data-tab="cup">Beker</div>
+    <div class="tab" data-tab="transfers">Transfers</div>
+    <div class="tab" data-tab="facilities">Faciliteiten</div>
+    <div class="tab" data-tab="sponsors">Sponsors</div>
+    <div class="tab" data-tab="youth">Jeugd</div>
+    <div class="tab" data-tab="club">Club</div>
+  </div>
+
+  <div id="view"></div>
+  <div class="footer muted">Formaties • Beker met loting (vanaf 3e divisie) • Contractonderhandelingen.</div>
+</div>
+
+<script defer src="app.js"></script>
+</body>
+</html>

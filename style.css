@@ -1,0 +1,59 @@
+:root{ --bg:#0f172a; --panel:#111827; --muted:#1f2937; --text:#e5e7eb; --sub:#9ca3af; --accent:#22c55e; --accent-2:#60a5fa; --danger:#ef4444; --warn:#f59e0b }
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(160deg,#0f172a,#0b1024);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif}
+header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 16px;background:rgba(255,255,255,0.02);backdrop-filter:blur(6px);position:sticky;top:0;z-index:10;border-bottom:1px solid rgba(255,255,255,0.06)}
+.brand{display:flex;gap:10px;align-items:center;font-weight:700}
+.brand .badge{background:var(--accent);color:#06250f;border-radius:10px;padding:4px 8px;font-size:12px}
+.right-actions{display:flex;gap:8px;align-items:center}
+button{background:var(--muted);border:1px solid rgba(255,255,255,0.08);color:var(--text);padding:8px 12px;border-radius:10px;cursor:pointer;transition:.2s;box-shadow:0 1px 0 rgba(0,0,0,.3)}
+button:hover{transform:translateY(-1px);background:#232d3b}
+button.primary{background:var(--accent);color:#06250f;border-color:#1ea752;font-weight:700}
+button.secondary{background:#1a2332}
+button.danger{background:var(--danger);color:#2a0d0d}
+.pill{padding:6px 10px;border-radius:999px;background:#182034;color:var(--sub);font-size:12px;border:1px solid rgba(255,255,255,0.06)}
+
+.container{max-width:1200px;margin:18px auto;padding:0 16px}
+.topbar{display:grid;gap:10px;grid-template-columns:1fr auto auto auto}
+.card{background:linear-gradient(180deg,#121a2b,#0f1728);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04),0 20px 40px rgba(0,0,0,.25)}
+.card.bar{display:flex;gap:18px;align-items:center;justify-content:center}
+h1{font-size:22px;margin:0 0 6px}
+h2{font-size:18px;margin:0 0 8px}
+h3{font-size:15px;margin:12px 0 6px;color:var(--sub)}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px;border-bottom:1px dashed rgba(255,255,255,0.06);text-align:left;font-size:14px}
+th{color:#cbd5e1}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+.tab{padding:8px 12px;border-radius:999px;background:#131c2c;border:1px solid rgba(255,255,255,0.08);cursor:pointer}
+.tab.active{background:var(--accent-2);color:#06132a;font-weight:700}
+.grid{display:grid;gap:12px}
+.grid-2{grid-template-columns:1fr 1fr}
+.grid-3{grid-template-columns:1fr 1fr 1fr}
+
+.progress{height:8px;background:#111827;border-radius:999px;overflow:hidden}
+.progress > span{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#16a34a)}
+
+.footer{opacity:.7;text-align:center;padding:20px}
+.muted{color:#9ca3af}
+.nowrap{white-space:nowrap}
+.money{font-variant-numeric:tabular-nums}
+.pos{font-weight:700; color:#c7d2fe}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid rgba(255,255,255,0.1);background:#172036;color:#9fb3d1}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{padding:6px 10px;border:1px solid rgba(255,255,255,.1);border-radius:999px;cursor:pointer;background:#131c2c}
+.chip.active{background:var(--accent-2);color:#06132a;font-weight:700}
+.hint{font-size:12px;color:#9ca3af}
+
+@media (max-width:900px){
+  .grid-2,.grid-3{grid-template-columns:1fr}
+  .topbar{grid-template-columns:1fr}
+}
+
+/* DnD Pitch */
+.pitch{position:relative;background:radial-gradient(ellipse at center, #0c1a2e 0%, #0a1222 60%);border:1px solid rgba(255,255,255,.08);border-radius:16px;min-height:540px;padding:12px}
+.pitch-grid{display:grid;grid-template-rows:repeat(5,1fr);grid-template-columns:repeat(5,1fr);gap:10px;height:480px;margin:6px 0}
+.slot{display:flex;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,.15);border-radius:12px;min-height:64px;padding:8px;background:#0e1728}
+.slot.filled{border-style:solid;background:linear-gradient(180deg,#0f1b30,#0b1324)}
+.slot .chip{pointer-events:none}
+.bench-bar{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:10px}
+.draggable{cursor:grab}
+.draggable:active{cursor:grabbing}
