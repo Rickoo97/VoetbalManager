@@ -1,6 +1,6 @@
-// BlankBall Manager v0.9.2
+// BlankBall Manager v0.9.3
 (() => {
-console.log('v0.9.2 loaded');
+console.log('v0.9.3 loaded');
 
 const rand=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 const choice=a=>a[Math.floor(Math.random()*a.length)];
@@ -21,10 +21,15 @@ let state={
   lineup:Array(11).fill(null), bench:Array(6).fill(null),
   filters:{pos:'ALL',status:'ALL',ovr:'ALL',search:''},
   ui:{squadSort:{key:'ovr',dir:'desc'}},
-  sponsors:{active:null, offers:[]}, sponsorProgress:{wins:0,points:0,goals:0},
+  // Sponsors gesplitst
+  sponsors:{
+    shirt:{active:null,offers:[]},
+    main:{active:null,offers:[]}
+  },
+  sponsorProgress:{wins:0,points:0,goals:0},
   cup:{eligible:false, active:false, round:0, teams:[], fixtures:[], history:[]},
-  finance:{last:{tickets:0,food:0,merch:0,sponsor:0,wages:0,prize:0,net:0,home:true}},
-  trophies: [], // {type:'league'|'cup', name:string, season:number}
+  finance:{last:{tickets:0,food:0,merch:0,sponsor_shirt:0,sponsor_main:0,tv:0,wages:0,prize:0,net:0,home:true}},
+  trophies: [],
   stats: {
     seasons: 0, matches: 0, wins: 0, draws: 0, losses: 0,
     gf: 0, ga: 0, prizeMoney: 0, revenues: 0, wagesPaid: 0,
@@ -33,7 +38,7 @@ let state={
   }
 };
 
-const saveKey='blankball-save-v092';
+const saveKey='blankball-save-v093';
 function save(){ localStorage.setItem(saveKey, JSON.stringify(state)); alert('Opgeslagen.'); }
 function load(){ const raw=localStorage.getItem(saveKey); if(raw){ try{state=JSON.parse(raw);}catch(e){ console.warn('Save corrupt -> nieuw'); } } }
 function reset(){ if(confirm('Weet je zeker?')){ localStorage.removeItem(saveKey); location.reload(); } }
@@ -42,12 +47,12 @@ const NAMES={first:['Jan','Piet','Klaas','Noah','Milan','Sem','Lucas','Daan','Le
 last:['Jansen','de Vries','van Dijk','Bakker','Visser','Smit','Mulder','de Boer','de Groot','van den Berg','Kuipers','Hendriks','Dekker','Willems','Meijer','Vos','Peters','de Leeuw','Schouten','Bos','van Dam','Hoekstra','Verbeek','Willemse','van Ginkel','Koster','Jacobs','Maas','Post','Schipper']};
 const clubPool=['Waalwijk Town','Breda City','Ajax Amateurs','Zwolle Noord','FC Polder','Rijnsburg','Maasland','Kustboys','IJsselmeer SC','Brabant United','Veluwe Rangers','Rotterdam Rovers','NAC Old Boys','Tilburg Tigers','Gouda United','Lek Boys','Merwe Rangers'];
 
+function rid(){ try{return [...crypto.getRandomValues(new Uint32Array(3))].map(x=>x.toString(16)).join('');}catch{return String(Math.random()).slice(2)} }
 function rndName(){return choice(NAMES.first)+' '+choice(NAMES.last);}
 function roman(n){const r=['','I','II','III','IV','V']; return r[n]||String(n);}
 function baseOverall(posBias){ return clamp(Math.round(rand(35,55)+posBias+state.division*2),30,85); }
 function wageFromOvr(ovr){ return (ovr*ovr*8)+rand(500,2000); }
 function valueFromOvr(ovr){ return (ovr**2)*120 + rand(10_000,80_000); }
-function rid(){ try{return [...crypto.getRandomValues(new Uint32Array(3))].map(x=>x.toString(16)).join('');}catch{return String(Math.random()).slice(2)} }
 
 function genPlayer(pos){
   const bias={GK:0,DEF:2,MID:3,ATT:4}[pos]||0;
@@ -73,22 +78,19 @@ function genInitialSquad(){
   s.sort((a,b)=>b.ovr-a.ovr); for(let i=0;i<3;i++) s[i].ovr+=4; return s;
 }
 
-// === League sizing ===
 function leagueTeamCountForDivision(div){ return (div===1)?18:12; }
-
 function genAIClubs(){
   const total=leagueTeamCountForDivision(state.division);
-  const count=total; const arr=[];
-  for(let i=0;i<count-1;i++){
+  const arr=[];
+  for(let i=0;i<total-1;i++){
     arr.push({id:rid(),name:clubPool[i%clubPool.length]+' '+roman(6-state.division),
       rating:clamp(55+(5-state.division)*4+rand(-6,6),40,85),points:0,gf:0,ga:0,gd:0});
   }
   return arr;
 }
-
 function divisionName(){ return DIV_NAME[state.division]||`Divisie ${state.division}`; }
 
-// === Fixtures round-robin (home & away) ===
+// Fixtures (double round robin)
 function scheduleFixtures(){
   const teams=[{id:'you',name:state.clubName,rating:avgOvrEffective(state.squad)}]
     .concat(state.aiClubs.map(c=>({id:c.id,name:c.name,rating:c.rating})));
@@ -122,7 +124,6 @@ function avgOvrEffective(sq){
   return Math.max(30,Math.round(base-missing*1.8));
 }
 
-// Tactics impact
 function tacticsModifiers(){
   const st=state.tactics.style, fm=state.tactics.formation;
   let fbonus=0; if(fm==='3-5-2') fbonus=1; if(fm==='4-3-3') fbonus=0.5;
@@ -141,18 +142,7 @@ function playMatch(hr,ar,homeIsYou,awayIsYou){
   return [hg,ag];
 }
 
-// Beker: ET + penals
-function cupTieWithETP(hr,ar,homeIsYou,awayIsYou){
-  let [h,a]=playMatch(hr,ar,homeIsYou,awayIsYou);
-  if(h!==a) return {h,a,et:false,pens:false,homeWin:h>a};
-  const etH = poisson(lambdaFromRating(hr,ar)*0.45);
-  const etA = poisson(lambdaFromRating(ar,hr)*0.45);
-  h+=etH; a+=etA;
-  if(h!==a) return {h,a,et:true,pens:false,homeWin:h>a};
-  const bias = (hr - ar) / 100;
-  const homeWin = Math.random() < (0.5 + clamp(bias, -0.1, 0.1));
-  return {h,a,et:true,pens:true,homeWin};
-}
+// Cup with ET+pens (omitted here for brevity - same as v0.9.2) -- functions exist later
 
 function addResult(idA,ga,idB,gb){
   const tA=state.table.find(t=>t.id===idA), tB=state.table.find(t=>t.id===idB); if(!tA||!tB) return;
@@ -169,6 +159,19 @@ function makeAutoSubs(starters){
   const subs=bench.slice().sort((a,b)=>b.ovr-a.ovr).slice(0,desired), field=starters.slice(); const replaced=[];
   subs.forEach(sub=>{ let cands=field.filter(p=>p.pos===sub.pos); if(!cands.length) cands=field.slice(); cands.sort((a,b)=>a.ovr-b.ovr); const t=cands[0]; if(t){ replaced.push(t); const idx=field.findIndex(x=>x.id===t.id); if(idx>-1) field.splice(idx,1); } sub.apps++; });
   const avg=a=>a.length?a.reduce((s,p)=>s+p.ovr,0)/a.length:0; const boost=Math.max(0,(avg(subs)-avg(replaced))/8); return {count:subs.length,boost};
+}
+
+// === TV & Finance helpers ===
+function tvEligible(){ return state.division<=3; }
+function tvOutcome(isHome){
+  if(!tvEligible()) return {on:false,amount:0};
+  const roll=Math.random();
+  let chance=0, homePay=0, awayPay=0;
+  if(state.division===3){ chance=0.20; homePay=50_000; awayPay=25_000; }
+  if(state.division===2){ chance=0.35; homePay=120_000; awayPay=60_000; }
+  if(state.division===1){ chance=0.50; homePay=300_000; awayPay=150_000; }
+  const on = roll < chance;
+  return {on,amount:on?(isHome?homePay:awayPay):0};
 }
 
 function playNextMatchday(){
@@ -192,7 +195,6 @@ function playNextMatchday(){
     f.score=res; f.played=true; 
     addResult(f.home,res[0],f.away,res[1]);
 
-    // — stats voor jouw club —
     if (homeYou || awayYou) {
       const gf = homeYou ? res[0] : res[1];
       const ga = homeYou ? res[1] : res[0];
@@ -213,22 +215,28 @@ function playNextMatchday(){
   // Finance: wages and revenue
   const weekly=state.squad.reduce((a,p)=>a+p.wage,0);
   state.budget = Math.max(0, state.budget - weekly);
-  let last={tickets:0,food:0,merch:0,sponsor:0,wages:weekly,prize:0,net:0,home:true};
+  let last={tickets:0,food:0,merch:0,sponsor_shirt:0,sponsor_main:0,tv:0,wages:weekly,prize:0,net:0,home:true};
 
-  if(youHadMatch){
-    const rev=breakdownMatchdayRevenue(youHome);
+  const youFx = todays.find(f=>f.home==='you'||f.away==='you');
+  const isHome = youFx ? (youFx.home==='you') : true;
+
+  if(youFx){
+    const rev=breakdownMatchdayRevenue(isHome);
     state.budget+=rev.total;
-    last.tickets=rev.tickets; last.food=rev.food; last.merch=rev.merch; last.home=youHome;
-    if(state.sponsors.active){ state.budget+=state.sponsors.active.baseWeekly; last.sponsor=state.sponsors.active.baseWeekly; }
-  }else{
-    if(state.sponsors.active){ state.budget+=state.sponsors.active.baseWeekly; last.sponsor=state.sponsors.active.baseWeekly; }
+    last.tickets=rev.tickets; last.food=rev.food; last.merch=rev.merch; last.home=isHome;
+    const tv=tvOutcome(isHome); if(tv.on){ state.budget+=tv.amount; last.tv=tv.amount; }
   }
+  // sponsors: beide betalen wekelijks
+  const sShirt = state.sponsors.shirt.active;
+  const sMain  = state.sponsors.main.active;
+  if(sShirt){ state.budget+=sShirt.baseWeekly; last.sponsor_shirt=sShirt.baseWeekly; }
+  if(sMain){  state.budget+=sMain.baseWeekly;  last.sponsor_main =sMain.baseWeekly;  }
 
   // cumulatieve stats
   state.stats.wagesPaid += weekly;
-  state.stats.revenues  += (last.tickets + last.food + last.merch + last.sponsor);
+  state.stats.revenues  += (last.tickets + last.food + last.merch + last.sponsor_shirt + last.sponsor_main + last.tv);
 
-  last.net = (last.tickets+last.food+last.merch+last.sponsor+last.prize) - last.wages;
+  last.net = (last.tickets+last.food+last.merch+last.sponsor_shirt+last.sponsor_main+last.tv+last.prize) - last.wages;
   state.finance.last = last;
 
   injuriesTick(); trainTick(); generateOffersTick();
@@ -254,6 +262,7 @@ function trainTick(){
   });
 }
 
+// Market / transfers (unchanged)
 function refreshMarket(){
   const size=18, arr=[];
   for(let i=0;i<size;i++){ const pos=choice(POS); const p=genPlayer(pos); p.ovr=clamp(p.ovr+rand(0,state.scouting),20,95); p.pot=clamp(Math.max(p.pot,p.ovr+rand(3,15)),p.ovr+1,99); arr.push(p); }
@@ -273,7 +282,7 @@ function generateOffersTick(){
 function acceptOffer(id){ const o=state.offers.find(x=>x.id===id); if(!o) return; const idx=state.squad.findIndex(p=>p.id===o.playerId); if(idx===-1) return; state.budget+=o.amount; state.squad.splice(idx,1); state.offers=state.offers.filter(x=>x.id!==id); toast(`Verkocht: ${o.playerName} voor ${fmt(o.amount)}`); render(); }
 function rejectOffer(id){ state.offers=state.offers.filter(x=>x.id!==id); render(); }
 
-// Facilities & tickets
+// Facilities & tickets (unchanged except constants)
 function facCost(kind,lvl){ const base={training:300_000,youth:350_000,scouting:250_000,stadium:800_000}[kind]; return Math.round(base*(1+(lvl-1)*0.55)*(6-state.division)*0.9); }
 function upgrade(kind){ const cur=state[kind]; if(cur>=10) return alert('Max niveau 10'); const cost=facCost(kind,cur+1); if(state.budget<cost) return alert('Onvoldoende budget'); state.budget-=cost; state[kind]++; render(); }
 const STADIUM_LVL=[0,800,1200,2500,5000,10000,18000,26000,35000,42000,50000];
@@ -289,7 +298,7 @@ function breakdownMatchdayRevenue(home){
   return {tickets:home?tickets:Math.round(tickets*0.25), food:home?food:Math.round(food*0.25), merch:home?merch:Math.round(merch*0.25), total};
 }
 
-// Youth & Sponsors
+// Youth (unchanged)
 function generateYouthPool(){
   const c=2+Math.ceil(state.youth/2), arr=[];
   for(let i=0;i<c;i++){ const pos=choice(POS); const p=genPlayer(pos); p.age=rand(15,18); p.ovr=clamp(rand(30,45)+state.youth,25,75); p.pot=clamp(p.ovr+rand(10,30)+state.youth,p.ovr+8,99); p.value=Math.round(valueFromOvr(p.ovr)*0.4); p.wage=Math.max(200,Math.round(p.wage*0.4)); arr.push(p); }
@@ -297,31 +306,50 @@ function generateYouthPool(){
 }
 function signYouth(id){ const p=state.youthPool.find(x=>x.id===id); if(!p) return; if(state.squad.length>=32) return alert('Selectie vol (32)'); state.squad.push(p); state.youthPool=state.youthPool.filter(x=>x.id!==id); render(); }
 
-function genSponsorOffers(){
+// Sponsors (nieuw model: shirt & hoofdsponsor, meerjarig)
+function genSponsorOffer(kind){
   const brands=['EnergyUp','Kaas&Co','TechNova','SfeerShots','PixelPro','GreenBank','AirNL','Spurt','StadionShop','CryptoCat'];
-  const arr=[]; for(let i=0;i<3;i++){ const brand=choice(brands);
-    const baseWeekly=Math.round((8000+(6-state.division)*6000)*(0.8+Math.random()*0.6));
-    const t=choice(['wins','points','goals','position']); let target,label;
-    if(t==='wins'){target=10-(state.division-1); label=`Behaal ${target} overwinningen`; }
-    if(t==='points'){target=45-(state.division-1)*5; label=`Behaal ${target} punten`; }
-    if(t==='goals'){target=40-(state.division-1)*5; label=`Scoor ${target} goals`; }
-    if(t==='position'){target=Math.max(1,6-(5-state.division)); label=`Eindig ${target}e of beter`; }
-    const bonus=Math.round(baseWeekly*10*(1+Math.random()*0.5));
-    arr.push({id:rid(),brand,baseWeekly,objective:{type:t,target,label},bonus});
-  }
-  state.sponsors.offers=arr; if(!state.sponsors.active) state.sponsors.active=null;
+  const brand=choice(brands);
+  // basissen per soort
+  const baseWeekly=(kind==='shirt')
+    ? Math.round((9000+(6-state.division)*7000)*(0.8+Math.random()*0.6))
+    : Math.round((14000+(6-state.division)*11000)*(0.8+Math.random()*0.6));
+  const dur=(kind==='shirt')? rand(1,3):rand(2,4);
+  // doel
+  const t=choice(['wins','points','goals','position']);
+  let target,label;
+  if(t==='wins'){target=10-(state.division-1); label=`Behaal ${target} overwinningen`; }
+  if(t==='points'){target=45-(state.division-1)*5; label=`Behaal ${target} punten`; }
+  if(t==='goals'){target=40-(state.division-1)*5; label=`Scoor ${target} goals`; }
+  if(t==='position'){target=Math.max(1,6-(5-state.division)); label=`Eindig ${target}e of beter`; }
+  const bonus=Math.round(baseWeekly*10*(1+Math.random()*0.5));
+  return {id:rid(),kind,brand,baseWeekly,objective:{type:t,target,label},bonus,duration:dur,seasonsRemaining:dur};
 }
-function acceptSponsor(id){ const o=state.sponsors.offers.find(x=>x.id===id); if(!o) return; state.sponsors.active=o; state.sponsors.offers=state.sponsors.offers.filter(x=>x.id!==id); toast(`Sponsor: ${o.brand} (${fmt(o.baseWeekly)}/wk)`); }
-function cancelSponsor(){ if(state.sponsors.active && confirm('Sponsor opzeggen?')) state.sponsors.active=null; }
-function sponsorProgressText(){
-  const a=state.sponsors.active; if(!a) return '—';
+function genSponsorOffers(){
+  if(!state.sponsors.shirt.offers.length) state.sponsors.shirt.offers=[genSponsorOffer('shirt'),genSponsorOffer('shirt'),genSponsorOffer('shirt')];
+  if(!state.sponsors.main.offers.length)  state.sponsors.main.offers =[genSponsorOffer('main'), genSponsorOffer('main'), genSponsorOffer('main')];
+}
+function acceptSponsor(kind,id){
+  const box = state.sponsors[kind];
+  const o = box.offers.find(x=>x.id===id); if(!o) return;
+  box.active=o; box.offers=box.offers.filter(x=>x.id!==id);
+  toast(`${kind==='shirt'?'Shirt-':'Hoofd'}sponsor: ${o.brand} (${fmt(o.baseWeekly)}/wk • ${o.duration} seizoenen)`);
+}
+function cancelSponsor(kind){
+  const box=state.sponsors[kind];
+  if(box.active && confirm(`${
+    kind==='shirt'?'Shirt-':'Hoofd'
+  }sponsor opzeggen?`)) box.active=null;
+}
+function sponsorProgressTextFor(kind){
+  const a=state.sponsors[kind].active; if(!a) return '—';
   const sp=state.sponsorProgress; const {type,target}=a.objective; let have=0;
   if(type==='wins') have=sp.wins; if(type==='points') have=sp.points; if(type==='goals') have=sp.goals;
-  if(type==='position'){ const pos=state.table.slice().sort((x,y)=>y.pts-x.pts||y.gd-x.gd||y.gf-x.gf).findIndex(t=>t.id==='you')+1; have=pos? (pos<=target?target:pos):0; return `Huidige positie: ${have} • Doel: ≤ ${target}`; }
+  if(type==='position'){ const pos=state.table.slice().sort((x,y)=>y.pts-x.pts||y.gd-x.gd||y.gf-x.gf).findIndex(t=>t.id==='you')+1; have=pos? (pos<=target?target:pos):0; return `Positie: ${have} • Doel: ≤ ${target}`; }
   return `Voortgang: ${have}/${target}`;
 }
 
-// Contracts
+// Contracten spelers (ongewijzigd)
 function desiredWage(p){
   const base=Math.round(wageFromOvr(p.ovr)/52);
   const ageAdj=(p.age<=22?1.1:(p.age>=30?0.95:1.0));
@@ -345,7 +373,7 @@ function negotiateContract(id){
     if(state.budget<bonus) { alert('Onvoldoende budget voor tekenbonus.'); return; }
     state.budget-=bonus;
     p.contract=years; p.wage=wage;
-    toast(`Contract getekend: ${p.name} • ${years} jr • ${fmt(wage)}/wk (tekenbonus ${fmt(bonus)})`);
+    toast(`Contract: ${p.name} • ${years} jr • ${fmt(wage)}/wk (tekenbonus ${fmt(bonus)})`);
   }else{
     const hint=Math.round(ask*1.05);
     alert(`${p.name} weigert. Tip: probeer ≥ ${fmt(hint)} of langere duur.`);
@@ -372,7 +400,7 @@ function pickStartingXI(){
   function bestOf(arr,n){ return arr.slice(0,n); }
 }
 
-// === Cup (knock-out) met ET + penals ===
+// Cup (zoals v0.9.2) — functies: cupEligible, genCupTeams, cupResetStart, cupDraw, cupPlayRound, cupTieWithETP
 function cupEligible(){ return state.division<=3; }
 function genCupTeams(){
   const teams=[{id:'you',name:state.clubName,div:state.division, rating:avgOvrEffective(state.squad)}];
@@ -384,6 +412,7 @@ function genCupTeams(){
   }
   return teams;
 }
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
 function cupResetStart(){
   state.cup.eligible=cupEligible();
   if(!state.cup.eligible){ state.cup={eligible:false,active:false,round:0,teams:[],fixtures:[],history:[]}; return; }
@@ -391,8 +420,7 @@ function cupResetStart(){
 }
 function cupDraw(){
   if(!state.cup.active) return;
-  const pool=state.cup.teams.slice();
-  shuffle(pool);
+  const pool=state.cup.teams.slice(); shuffle(pool);
   const fx=[];
   for(let i=0;i<pool.length;i+=2){
     const A=pool[i],B=pool[i+1];
@@ -400,6 +428,19 @@ function cupDraw(){
   }
   state.cup.fixtures=fx;
   toast(`Beker loting: ${fx.length} wedstrijden (${state.cup.round}-finale)`);
+}
+function lambdaFromRating(a,b){const diff=a-b; const base=1.1; return clamp(base+diff/50,0.4,2.2);} // (duplicate guard)
+function poisson(l){l=Math.max(0.05,l); let L=Math.exp(-l),k=0,p=1; do{k++;p*=Math.random();}while(p>L); return k-1;} // (duplicate guard)
+function cupTieWithETP(hr,ar,homeIsYou,awayIsYou){
+  let [h,a]=playMatch(hr,ar,homeIsYou,awayIsYou);
+  if(h!==a) return {h,a,et:false,pens:false,homeWin:h>a};
+  const etH = poisson(lambdaFromRating(hr,ar)*0.45);
+  const etA = poisson(lambdaFromRating(ar,hr)*0.45);
+  h+=etH; a+=etA;
+  if(h!==a) return {h,a,et:true,pens:false,homeWin:h>a};
+  const bias = (hr - ar) / 100;
+  const homeWin = Math.random() < (0.5 + clamp(bias, -0.1, 0.1));
+  return {h,a,et:true,pens:true,homeWin};
 }
 function cupPlayRound(){
   const fx=state.cup.fixtures; if(!fx || fx.length===0){ alert('Geen loting nog.'); return; }
@@ -439,14 +480,7 @@ function cupPlayRound(){
   render();
 }
 
-// Shuffle
-function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
-
-// XI & DnD helpers
-function ensureArrays(){ if(!Array.isArray(state.lineup)) state.lineup=Array(11).fill(null); if(!Array.isArray(state.bench)) state.bench=Array(6).fill(null); }
-function removeEverywhere(pid){ if(!pid) return; const li=state.lineup.indexOf(pid); if(li>-1) state.lineup[li]=null; const bi=state.bench.indexOf(pid); if(bi>-1) state.bench[bi]=null; }
-
-// === End season with new promotion/relegation rules + stats/trophies ===
+// === End season: promotie/degradatie + sponsorbonussen + contractduur aflopend ===
 function endSeason(){
   state.table.sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf);
   const pos=state.table.findIndex(t=>t.id==='you')+1;
@@ -454,20 +488,20 @@ function endSeason(){
   const prize=Math.round(800_000/state.division*(state.table.length-pos+1)*0.6); state.budget+=prize; msg+=`\nPrijzengeld: ${fmt(prize)}`;
   state.stats.prizeMoney += prize;
 
-  // Beste klassering per divisie
   const best = state.stats.bestFinishPerDiv[state.division];
   state.stats.bestFinishPerDiv[state.division] = (best==null)? pos : Math.min(best, pos);
 
-  // Landstitel
-  if (pos === 1) {
-    state.stats.leaguesWon++;
-    state.trophies.push({type:'league', name: divisionName(), season: state.season});
-  }
+  if (pos === 1) { state.stats.leaguesWon++; state.trophies.push({type:'league', name: divisionName(), season: state.season}); }
 
-  // Sponsor bonus
-  if(state.sponsors.active){ const a=state.sponsors.active; const sp=state.sponsorProgress; const t=a.objective; let ok=false;
+  // Sponsorbonussen per type
+  ['shirt','main'].forEach(kind=>{
+    const a=state.sponsors[kind].active; if(!a) return;
+    const sp=state.sponsorProgress; const t=a.objective; let ok=false;
     if(t.type==='wins') ok=sp.wins>=t.target; if(t.type==='points') ok=sp.points>=t.target; if(t.type==='goals') ok=sp.goals>=t.target; if(t.type==='position') ok=pos<=t.target;
-    if(ok){ state.budget+=a.bonus; msg+=`\nSponsorbonus: ${fmt(a.bonus)} (doel gehaald)`; } else msg+='\nSponsorbonus gemist.'; }
+    if(ok){ state.budget+=a.bonus; msg+=`\n${kind==='shirt'?'Shirt-':'Hoofd'}sponsor bonus: ${fmt(a.bonus)} (doel gehaald)`; }
+    a.seasonsRemaining = Math.max(0,(a.seasonsRemaining||a.duration||1)-1);
+    if(a.seasonsRemaining===0){ state.sponsors[kind].active=null; msg+=`\n${kind==='shirt'?'Shirt-':'Hoofd'}sponsor: contract afgelopen.`; }
+  });
 
   const lastIdx=state.table.length;
 
@@ -505,7 +539,7 @@ function endSeason(){
     else if(pos===lastIdx && state.division<5){ state.division++; msg+=`\nDegradatie → ${divisionName()}`; }
   }
 
-  // Ageing etc.
+  // Ageing & contracts
   state.squad.forEach(p=>{ p.age++; if(p.contract>0) p.contract--; if(p.injured>0) p.injured=Math.max(0,p.injured-1); p.suspended=0; p.yellows=0; p.reds=0; p.apps=0; });
   state.squad=state.squad.filter(p=>{ if(p.contract<=0 && Math.random()<0.5) return false; if(p.age<=26) p.ovr=clamp(p.ovr+rand(0,2),1,99); if(p.age>=31) p.ovr=clamp(p.ovr-rand(0,2),1,99); p.value=Math.round(valueFromOvr(p.ovr)); p.wage=Math.round(wageFromOvr(p.ovr)/52); return true; });
 
@@ -514,12 +548,14 @@ function endSeason(){
   state.season++; 
   state.stats.seasons++;
   state.sponsorProgress={wins:0,points:0,goals:0};
-  genSponsorOffers(); state.aiClubs=genAIClubs(); scheduleFixtures(); refreshMarket(); generateYouthPool(); state.offers=[];
+  // genereer nieuwe aanbiedingen als slot vrij is
+  genSponsorOffers();
+  state.aiClubs=genAIClubs(); scheduleFixtures(); refreshMarket(); generateYouthPool(); state.offers=[];
   cupResetStart();
   render();
 }
 
-// === Views (incl. sortable tables & stand kleuren) ===
+// === Views ===
 function viewSquad(){
   const posOps=['ALL','GK','DEF','MID','ATT'], statOps=['ALL','FIT','INJ','SUS','LISTED'], ovrOps=['ALL','50+','60+','70+'];
   const posChips=posOps.map(p=>`<span class="chip ${state.filters.pos===p?'active':''}" data-pos="${p}">${p}</span>`).join('');
@@ -534,7 +570,6 @@ function viewSquad(){
   if(state.filters.ovr!=='ALL'){ const t=parseInt(state.filters.ovr); list=list.filter(p=>p.ovr>=t); }
   const q=state.filters.search.toLowerCase().trim(); if(q) list=list.filter(p=>`${p.name} ${p.pos}`.toLowerCase().includes(q));
 
-  // sort
   const sort=state.ui.squadSort||{key:'ovr',dir:'desc'};
   const dir = sort.dir==='asc'?1:-1;
   list.sort((a,b)=>{
@@ -543,7 +578,9 @@ function viewSquad(){
     if(va<vb) return -1*dir; if(va>vb) return 1*dir; return 0;
   });
 
-  const rows=list.map(p=>`<tr>
+  const rows=list.map(p=>`<tr class="${(p.injured>0||p.suspended>0)?'':'draggable'}" draggable="${!(p.injured>0||p.suspended>0)}" ondragstart="app.dragStart(event,'pool','${p.id}')"
+      ondblclick="app.quickAdd('${p.id}')"
+      ${(p.injured>0||p.suspended>0)?"style='opacity:.6'":''}>
     <td class="pos">${p.pos}</td>
     <td><strong>${p.name}</strong>
       <div class="muted">${p.age} jr • Pot ${p.pot}
@@ -608,6 +645,7 @@ function viewTactics(){
     const disabled=(p.injured>0||p.suspended>0), onXI=selectedXI.has(p.id), onB=selectedBench.has(p.id);
     const tags=[onXI?'<span class=tag>XI</span>':'',onB?'<span class=tag>Bank</span>':'',p.listed?'<span class=tag>TL</span>':'',p.injured>0?`<span class=tag style="background:#2a1720;color:#ff9fb3;border-color:#ff9fb3">Blessure ${p.injured}w</span>`:'',p.suspended>0?`<span class=tag style="background:#2a202f;color:#fbbf24;border-color:#fbbf24">Schors ${p.suspended}w</span>`:''].filter(Boolean).join(' ');
     return `<tr class="${disabled?'':'draggable'}" draggable="${!disabled}" ondragstart="app.dragStart(event,'pool','${p.id}')"
+      ondblclick="app.quickAdd('${p.id}')"
       ${disabled?"style='opacity:.6'":''}><td class="pos">${p.pos}</td><td><strong>${p.name}</strong><div class="muted">${p.ovr} OVR • ${p.age} jr ${tags}</div></td>
       <td>${p.pace}</td><td>${p.passing}</td><td>${p.shooting}</td><td>${p.defense}</td>
       <td><button ${disabled?'disabled':''} class="${onXI?'primary':''}" onclick="app.toggleXI('${p.id}')">${onXI?'In XI':'Naar XI'}</button></td></tr>`;
@@ -619,8 +657,8 @@ function viewTactics(){
   return `<div class="grid grid-2">
     <div class="card">
       <h2>Opstelling — drag & drop</h2>
-      <div class="hint">XI: <strong>${state.lineup.filter(Boolean).length}</strong>/11 • Bank: <strong>${state.bench.filter(Boolean).length}</strong>/6</div>
-      <div style="display:flex;gap:8px;margin:8px 0"><button class="secondary" onclick="app.autoXI()">Auto (beste XI)</button><button onclick="app.clearXI()">Leegmaken XI</button><button onclick="app.clearBench()">Leegmaken bank</button><button class="primary" onclick="app.saveXI()">Opslaan</button></div>
+      <div class="hint">Dubbelklik op speler = snelle toevoeging. XI: <strong>${state.lineup.filter(Boolean).length}</strong>/11 • Bank: <strong>${state.bench.filter(Boolean).length}</strong>/6</div>
+      <div style="display:flex;gap:8px;margin:8px 0"><button class="secondary" onclick="app.autoXI()">Auto (beste XI + bank)</button><button onclick="app.clearXI()">Leegmaken XI</button><button onclick="app.clearBench()">Leegmaken bank</button><button class="primary" onclick="app.saveXI()">Opslaan</button></div>
       <table><thead><tr><th>Pos</th><th>Speler</th><th>PAC</th><th>PAS</th><th>SHO</th><th>DEF</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     </div>
     <div class="card">
@@ -634,7 +672,6 @@ function viewTactics(){
 
 function viewFixtures(){
   const fixtures=state.fixtures.map(f=>{ const s=f.score?`${f.score[0]} - ${f.score[1]}`:'<span class="muted">–</span>'; const you=(f.home==='you'||f.away==='you'); return `<tr ${you?"style='font-weight:700'":''}><td>${f.md}</td><td>${f.homeName}</td><td>${f.awayName}</td><td>${s}</td></tr>` }).join('');
-  // Stand met zones
   const sorted=state.table.slice().sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf);
   const total=sorted.length;
   const rows = sorted.map((t,i)=>{
@@ -677,10 +714,13 @@ function viewFacilities(){
 }
 
 function viewSponsors(){
-  const a=state.sponsors.active;
-  const active=a?`<div class="card"><h2>Actieve sponsor: ${a.brand}</h2><div class="muted">Basis: <strong>${fmt(a.baseWeekly)}/wk</strong> • Doel: <strong>${a.objective.label}</strong> • Bonus: <strong>${fmt(a.bonus)}</strong></div><div class="muted" style="margin-top:8px">${sponsorProgressText()}</div><div style="margin-top:8px"><button class="danger" onclick="app.cancelSponsor()">Opzeggen</button></div></div>`:`<div class="card"><h2>Geen actieve sponsor</h2><div class="muted">Kies hieronder.</div></div>`;
-  const offers=state.sponsors.offers.map(o=>`<tr><td><strong>${o.brand}</strong></td><td>${o.objective.label}</td><td class="money">${fmt(o.baseWeekly)}/wk</td><td class="money">${fmt(o.bonus)}</td><td><button class="primary" onclick="app.acceptSponsor('${o.id}')">Accepteer</button></td></tr>`).join('');
-  return `<div class="grid grid-2">${active}<div class="card"><h2>Beschikbare sponsordeals</h2><table><thead><tr><th>Merk</th><th>Doelstelling</th><th>Basis</th><th>Bonus</th><th></th></tr></thead><tbody>${offers||'<tr><td class="muted" colspan="5">Geen aanbiedingen. Nieuwe deals bij seizoenseinde.</td></tr>'}</tbody></table></div></div>`;
+  const section=(kind,title)=>{
+    const a=state.sponsors[kind].active;
+    const active=a?`<div class="card"><h2>${title}: ${a.brand}</h2><div class="muted">Basis: <strong>${fmt(a.baseWeekly)}/wk</strong> • Doel: <strong>${a.objective.label}</strong> • Bonus: <strong>${fmt(a.bonus)}</strong> • Resterend: <strong>${a.seasonsRemaining} seizo(en)</strong></div><div class="muted" style="margin-top:8px">${sponsorProgressTextFor(kind)}</div><div style="margin-top:8px"><button class="danger" onclick="app.cancelSponsor('${kind}')">Opzeggen</button></div></div>`:`<div class="card"><h2>Geen ${title.toLowerCase()}</h2><div class="muted">Kies hieronder.</div></div>`;
+    const offers=state.sponsors[kind].offers.map(o=>`<tr><td><strong>${o.brand}</strong></td><td>${o.objective.label}</td><td class="money">${fmt(o.baseWeekly)}/wk</td><td class="money">${fmt(o.bonus)}</td><td>${o.duration} seizoenen</td><td><button class="primary" onclick="app.acceptSponsor('${kind}','${o.id}')">Accepteer</button></td></tr>`).join('');
+    return `${active}<div class="card"><h2>Aanbiedingen (${title})</h2><table><thead><tr><th>Merk</th><th>Doelstelling</th><th>Basis</th><th>Bonus</th><th>Duur</th><th></th></tr></thead><tbody>${offers||'<tr><td class="muted" colspan="6">Geen aanbiedingen. Nieuwe deals bij seizoenseinde.</td></tr>'}</tbody></table></div>`;
+  };
+  return `<div class="grid grid-2">${section('shirt','Shirt-sponsor')}${section('main','Hoofdsponsor')}</div>`;
 }
 
 function viewYouth(){ const rows=state.youthPool.map(p=>`<tr><td class="pos">${p.pos}</td><td><strong>${p.name}</strong><div class="muted">${p.age} jr • Pot ${p.pot}</div></td><td>${p.ovr}</td><td class="money">${fmt(p.wage)}/w</td><td><button class="primary" onclick="app.signYouth('${p.id}')">Teken</button></td></tr>`).join(''); return `<div class="card"><h2>Jeugdinstroom</h2><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Loon</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`; }
@@ -689,7 +729,6 @@ function viewClub(){
   const s = state.stats || {};
   const cap = stadiumCapacity(state.stadium);
   const best = state.stats.bestFinishPerDiv;
-
   const statGrid = `
     <div class="grid grid-3">
       <div class="card"><h2>Algemeen</h2>
@@ -708,14 +747,11 @@ function viewClub(){
         <div class="muted">Prijzengeld: <strong>${fmt(s.prizeMoney||0)}</strong></div>
       </div>
     </div>`;
-
   const bestRows = Object.entries(best||{}).map(([d,v])=>`<tr><td>${DIV_NAME[d]||('Divisie '+d)}</td><td>${v?('#'+v):'—'}</td></tr>`).join('');
   const bestCard = `<div class="card"><h2>Beste klasseringen</h2>
     <table><thead><tr><th>Divisie</th><th>Beste plek</th></tr></thead><tbody>${bestRows}</tbody></table></div>`;
-
   const cups = state.trophies.filter(t=>t.type==='cup').sort((a,b)=>a.season-b.season);
   const leagues = state.trophies.filter(t=>t.type==='league').sort((a,b)=>a.season-b.season);
-
   const trophyChip = t => `<span class="chip">${t.name} • S${t.season}</span>`;
   const trophyCard = `<div class="card"><h2>Prijzenkast</h2>
     <div class="muted">Landstitels: <strong>${state.stats.leaguesWon||0}</strong> • Bekers: <strong>${state.stats.cupsWon||0}</strong></div>
@@ -724,13 +760,11 @@ function viewClub(){
     <h3 style="margin-top:10px">Bekerwinsten</h3>
     <div class="chips">${cups.length? cups.map(trophyChip).join('') : '<span class="muted">Nog geen bekers.</span>'}</div>
   </div>`;
-
   const actions = `<div class="card"><h2>Acties</h2>
     <button onclick="app.refreshMarket()">Ververs markt</button>
     <button class="secondary" onclick="app.generateYouthPool()">Nieuwe jeugd</button>
     <button class="danger" onclick="app.reset()">Hard reset</button>
   </div>`;
-
   return `<div class="grid grid-2">${statGrid}${trophyCard}${bestCard}${actions}</div>`;
 }
 
@@ -784,7 +818,6 @@ function attach(){
   qsa('.tab').forEach(el=>el.addEventListener('click',()=>{ qsa('.tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); render(); }));
   byId('playBtn').addEventListener('click',playNextMatchday);
 
-  // Slim simuleren
   byId('simulateBtn').addEventListener('click',()=>{
     const maxMd=Math.max(...state.fixtures.map(f=>f.md));
     const choiceStr = prompt(
@@ -821,14 +854,16 @@ function attach(){
 
   // Finance popover
   byId('financeCard').addEventListener('click',()=>{
-    const L=state.finance.last||{tickets:0,food:0,merch:0,sponsor:0,wages:0,prize:0,net:0,home:true};
+    const L=state.finance.last||{tickets:0,food:0,merch:0,sponsor_shirt:0,sponsor_main:0,tv:0,wages:0,prize:0,net:0,home:true};
     const body=byId('popoverBody');
     body.innerHTML = `
       <div class="row"><span>Thuis/Uit</span><strong>${L.home?'Thuis':'Uit'}</strong></div>
       <div class="row"><span>Tickets</span><strong>${fmt(L.tickets)}</strong></div>
       <div class="row"><span>Food & Drinks</span><strong>${fmt(L.food)}</strong></div>
       <div class="row"><span>Merchandise</span><strong>${fmt(L.merch)}</strong></div>
-      <div class="row"><span>Sponsor (week)</span><strong>${fmt(L.sponsor)}</strong></div>
+      <div class="row"><span>TV-inkomsten</span><strong>${fmt(L.tv)}</strong></div>
+      <div class="row"><span>Shirt-sponsor (week)</span><strong>${fmt(L.sponsor_shirt)}</strong></div>
+      <div class="row"><span>Hoofdsponsor (week)</span><strong>${fmt(L.sponsor_main)}</strong></div>
       <div class="row"><span>Prijzengeld</span><strong>${fmt(L.prize)}</strong></div>
       <div class="row"><span>Lonen</span><strong>- ${fmt(L.wages)}</strong></div>
       <div class="row"><span>Netto</span><strong>${fmt(L.net)}</strong></div>
@@ -839,12 +874,49 @@ function attach(){
   byId('popover').addEventListener('click',(e)=>{ if(e.target.id==='popover') byId('popover').classList.add('hidden'); });
 }
 
+function ensureArrays(){ if(!Array.isArray(state.lineup)) state.lineup=Array(11).fill(null); if(!Array.isArray(state.bench)) state.bench=Array(6).fill(null); }
+function removeEverywhere(pid){ if(!pid) return; const li=state.lineup.indexOf(pid); if(li>-1) state.lineup[li]=null; const bi=state.bench.indexOf(pid); if(bi>-1) state.bench[bi]=null; }
+
+// Expose
+window.app={
+  buy:buyPlayer, release:releasePlayer, toggleList, accept:acceptOffer, reject:rejectOffer,
+  upgrade, refreshMarket, generateYouthPool, signYouth,
+  toggleXI:(id)=>{ensureArrays(); const p=state.squad.find(x=>x.id===id); if(!p||p.injured>0||p.suspended>0) return; const idx=state.lineup.indexOf(id); if(idx>-1){ state.lineup[idx]=null; } else{ const free=state.lineup.findIndex(x=>!x); if(free===-1) return alert('Je XI zit vol (11)'); removeEverywhere(id); state.lineup[free]=id; } render();},
+  // Auto XI vult ook bank
+  autoXI:()=>{ ensureArrays(); const pool=state.squad.filter(p=>p.injured<=0&&p.suspended<=0).slice().sort((a,b)=>b.ovr-a.ovr); const needXI=pickStartingXI().map(p=>p.id); for(let i=0;i<11;i++) state.lineup[i]=needXI[i]||null; const used=new Set(needXI); const bench=pool.filter(p=>!used.has(p.id)).slice(0,6).map(p=>p.id); for(let i=0;i<6;i++) state.bench[i]=bench[i]||null; render(); },
+  clearXI:()=>{ ensureArrays(); for(let i=0;i<11;i++) state.lineup[i]=null; render(); },
+  clearBench:()=>{ ensureArrays(); for(let i=0;i<6;i++) state.bench[i]=null; render(); },
+  dragStart:(e,from,id,slot)=>{ state._drag={from,id,slot}; },
+  dropToXI:(e,idx)=>{ e.preventDefault(); ensureArrays(); const d=state._drag||{}; const p=state.squad.find(x=>x.id===d.id); if(!p||p.injured>0||p.suspended>0) return; removeEverywhere(p.id); state.lineup[idx]=p.id; render(); },
+  dropToBench:(e,idx)=>{ e.preventDefault(); ensureArrays(); const d=state._drag||{}; const p=state.squad.find(x=>x.id===d.id); if(!p||p.injured>0||p.suspended>0) return; removeEverywhere(p.id); state.bench[idx]=p.id; render(); },
+  clearSlotXI:(i)=>{state.lineup[i]=null; render();}, clearSlotBench:(i)=>{state.bench[i]=null; render();},
+  quickAdd:(id)=>{ ensureArrays(); const p=state.squad.find(x=>x.id===id); if(!p||p.injured>0||p.suspended>0) return; // eerst XI, dan bank
+    if(state.lineup.filter(Boolean).length<11){ removeEverywhere(id); const free=state.lineup.findIndex(x=>!x); state.lineup[free]=id; }
+    else if(state.bench.filter(Boolean).length<6){ removeEverywhere(id); const freeB=state.bench.findIndex(x=>!x); state.bench[freeB]=id; }
+    else { toast('XI en bank zijn vol.'); }
+    render();
+  },
+  saveXI:()=>toast('Opstelling & bank opgeslagen.'),
+  // Sponsors
+  acceptSponsor, cancelSponsor,
+  // Cup controls
+  cupDraw:()=>{ if(!state.cup.active||state.cup.round<=1){ alert('Beker nog niet actief of al klaar.'); return; } if(state.cup.fixtures.length){ alert('Ronde al geloot.'); return; } cupDraw(); render(); },
+  cupPlay:()=>{ if(!state.cup.active||!state.cup.fixtures.length){ alert('Geen wedstrijden om te spelen.'); return; } cupPlayRound(); },
+  reset
+};
+
 function init(){
   load();
-  // backfill voor oude saves
+  // backfill
   state.trophies = state.trophies || [];
   state.stats = state.stats || {seasons:0,matches:0,wins:0,draws:0,losses:0,gf:0,ga:0,prizeMoney:0,revenues:0,wagesPaid:0,leaguesWon:0,cupsWon:0,bestFinishPerDiv:{1:null,2:null,3:null,4:null,5:null}};
   if(!state.stats.bestFinishPerDiv) state.stats.bestFinishPerDiv={1:null,2:null,3:null,4:null,5:null};
+  if(!state.sponsors) state.sponsors={shirt:{active:null,offers:[]},main:{active:null,offers:[]}};
+  if(!state.sponsors.shirt) state.sponsors.shirt={active:null,offers:[]};
+  if(!state.sponsors.main)  state.sponsors.main ={active:null,offers:[]};
+  if(!state.finance||!state.finance.last) state.finance={last:{tickets:0,food:0,merch:0,sponsor_shirt:0,sponsor_main:0,tv:0,wages:0,prize:0,net:0,home:true}};
+  if(!state.bench) state.bench=Array(6).fill(null);
+  if(!state.lineup) state.lineup=Array(11).fill(null);
 
   if(!state.squad || state.squad.length===0){
     state.clubName=prompt('Clubnaam?', 'SfeerShots FC') || 'Your FC';
@@ -855,9 +927,8 @@ function init(){
     state.tactics=state.tactics||{style:'defensive',formation:'4-3-3'};
     state.filters=state.filters||{pos:'ALL',status:'ALL',ovr:'ALL',search:''};
     state.ui=state.ui||{squadSort:{key:'ovr',dir:'desc'}};
-    state.sponsors=state.sponsors||{active:null,offers:[]};
     state.sponsorProgress=state.sponsorProgress||{wins:0,points:0,goals:0};
-    if(!state.sponsors.offers||state.sponsors.offers.length===0) genSponsorOffers();
+    genSponsorOffers();
     state.stadium=state.stadium||1;
     if(!state.cup) state.cup={eligible:false,active:false,round:0,teams:[],fixtures:[],history:[]};
     if(cupEligible() && (!state.cup.active || !state.cup.round)) cupResetStart();
@@ -865,26 +936,6 @@ function init(){
   }
   attach(); render();
 }
-
-// Expose
-window.app={
-  buy:buyPlayer, release:releasePlayer, toggleList, accept:acceptOffer, reject:rejectOffer,
-  upgrade, refreshMarket, generateYouthPool, signYouth,
-  toggleXI:(id)=>{ensureArrays(); const p=state.squad.find(x=>x.id===id); if(!p||p.injured>0||p.suspended>0) return; const idx=state.lineup.indexOf(id); if(idx>-1){ state.lineup[idx]=null; } else{ const free=state.lineup.findIndex(x=>!x); if(free===-1) return alert('Je XI zit vol (11)'); removeEverywhere(id); state.lineup[free]=id; } render();},
-  autoXI:()=>{ ensureArrays(); const best=pickStartingXI().map(p=>p.id); for(let i=0;i<11;i++) state.lineup[i]=best[i]||null; render(); },
-  clearXI:()=>{ ensureArrays(); for(let i=0;i<11;i++) state.lineup[i]=null; render(); },
-  clearBench:()=>{ ensureArrays(); for(let i=0;i<6;i++) state.bench[i]=null; render(); },
-  dragStart:(e,from,id,slot)=>{ state._drag={from,id,slot}; },
-  dropToXI:(e,idx)=>{ e.preventDefault(); ensureArrays(); const d=state._drag||{}; const p=state.squad.find(x=>x.id===d.id); if(!p||p.injured>0||p.suspended>0) return; removeEverywhere(p.id); state.lineup[idx]=p.id; render(); },
-  dropToBench:(e,idx)=>{ e.preventDefault(); ensureArrays(); const d=state._drag||{}; const p=state.squad.find(x=>x.id===d.id); if(!p||p.injured>0||p.suspended>0) return; removeEverywhere(p.id); state.bench[idx]=p.id; render(); },
-  clearSlotXI:(i)=>{state.lineup[i]=null; render();}, clearSlotBench:(i)=>{state.bench[i]=null; render();},
-  saveXI:()=>toast('Opstelling & bank opgeslagen.'),
-  acceptSponsor, cancelSponsor,
-  negotiate:negotiateContract,
-  cupDraw:()=>{ if(!state.cup.active||state.cup.round<=1){ alert('Beker nog niet actief of al klaar.'); return; } if(state.cup.fixtures.length){ alert('Ronde al geloot.'); return; } cupDraw(); render(); },
-  cupPlay:()=>{ if(!state.cup.active||!state.cup.fixtures.length){ alert('Geen wedstrijden om te spelen.'); return; } cupPlayRound(); },
-  reset
-};
 
 init();
 

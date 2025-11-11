@@ -5,34 +5,50 @@
 
 ---
 
-## 🚀 Wat is nieuw in v0.9.2
-- **Club-tab gerepareerd** en uitgebreid met:
-  - **Statistieken (all-time)**: seizoenen, W–G–V, GF/GA, inkomsten, lonen, prijzengeld.
-  - **Prijzenkast**: beker- en landstitels worden automatisch toegevoegd per seizoen.
-  - **Beste klasseringen per divisie**.
-- **Stand-kleuren**: promotie/play-off/degradatie zones per divisie.
-- **Beker**: bij gelijkspel **verlenging + penalty’s** (geen coinflip).
-- **Simuleren**: keuze voor *winterstop*, *volledig seizoen* of *tot volgende beker-actie*.
-- **Financieel popover**: klik op **Budget**-kaart voor inkomsten/uitgaven van de laatste speeldag.
-- **Competitiestructuur**:
-  - **Kampioen Divisie (D1)** heeft **18 teams**.
-  - **Hoofdklasse (D2)**: #1–2 promotie direct, **#3–6** spelen **play-offs** tegen **#16 van D1**.
-
-> Zie ook v0.9.1: sorteren in tabellen, autosubs 60–75’, etc.
+## 🚀 Wat is nieuw in v0.9.3
+- **Sponsors gesplitst**:
+  - **Shirt-sponsor** *(1–3 seizoenen)* en **Hoofdsponsor** *(2–4 seizoenen)*.
+  - Beide betalen **wekelijkse basis** + **seizoensbonus** bij het halen van de doelstelling.
+  - Contractduur telt af aan het einde van een seizoen.
+- **TV-inkomsten** vanaf **3e divisie**: kans dat je wedstrijd wordt uitgezonden → extra geld (thuis > uit). Terug te zien in het **financieel popover**.
+- **Opstelling UX**:
+  - **Auto beste XI** vult nu óók **automatisch de bank (6)** met de volgende beste fitte spelers.
+  - **Dubbelklik** op speler: snelle toevoeging naar XI (of bank indien XI vol).
+- Alles van v0.9.2 blijft natuurlijk beschikbaar (Club-statistieken, Prijzenkast, Stand-kleuren, Beker ET+pens, sim-opties, etc.).
 
 ---
 
-## 🎯 Features (samenvatting)
-- **Competitie**: start in **5e divisie** en klim via 4e, 3e, **Hoofdklasse**, **Kampioen Divisie**.
-- **Formaties & speelstijl**: 4-3-3, 4-4-2, 3-5-2 + *Zeer verdedigend*, *Balbezit*, *Zeer aanvallend*.
-- **Beker** (knock-out met loting) **vanaf 3e divisie**; ET+pens; prijzengeld per ronde.
-- **Contractonderhandelingen** (loon + duur), kans op acceptatie o.b.v. aanbod/divisie.
-- **Transfers**: markt, transferlijst, AI-biedingen.
-- **Blessures & schorsingen**, **Autosubs** (max 5), **Jeugdinstroom**, **Training**.
-- **Sponsors** met doelstellingen + wekelijkse inkomsten en bonus.
-- **Faciliteiten** t/m **niveau 10** (stadion-cap per divisie; meer inkomsten op hogere niveaus).
-- **Financiën**: lonen, ticket/merch/food, prijzengeld, popover-overzicht.
-- **Saves**: lokaal via `localStorage` + resetknop.
+## 🎯 Korte handleiding Sponsors
+Ga naar **Sponsors**:
+- Kies apart een **Shirt-sponsor** en een **Hoofdsponsor** uit de aanbiedingen.
+- Je ziet **basis/week**, **bonus**, **doelstelling** en **contractduur**.
+- Aan het einde van het seizoen:
+  - Bonus wordt uitgekeerd als doel gehaald.
+  - Contractduur **-1**; bij 0 loopt het contract af.
+- Wekelijks ontvang je beide sponsorbedragen. Dit zie je in het financieel popover.
+
+---
+
+## 📺 TV-gelden
+- Beschikbaar vanaf **3e divisie**.
+- Kans op uitzending:
+  - 3e divisie: ~20% → **€50k thuis / €25k uit**
+  - Hoofdklasse: ~35% → **€120k / €60k**
+  - Kampioen Divisie: ~50% → **€300k / €150k**
+- TV-geld wordt getoond in de popover van de laatste speeldag.
+
+---
+
+## 🧠 Opstelling tips
+- **Dubbelklik** op een speler om hem snel toe te voegen (eerst XI, daarna bank).
+- **Auto (beste XI + bank)** zet de ideale XI én vult de bank met 6 beste fitte reserves.
+- Drag & drop werkt zoals voorheen (grotere dropzones op het veld/bank).
+
+---
+
+## ☁️ Deploy
+Staat al klaar om statisch te hosten (GitHub Pages / Netlify).  
+**Netlify**: geen build command; **Publish directory** is `/`.
 
 ---
 
