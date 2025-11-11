@@ -1,6 +1,6 @@
-// BlankBall Manager v0.9 (split build)
+// BlankBall Manager v0.9.1
 (() => {
-console.log('v0.9 loaded (split)');
+console.log('v0.9.1 loaded');
 
 const rand=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 const choice=a=>a[Math.floor(Math.random()*a.length)];
@@ -20,11 +20,13 @@ let state={
   tactics:{ style:'defensive', formation:'4-3-3' },
   lineup:Array(11).fill(null), bench:Array(6).fill(null),
   filters:{pos:'ALL',status:'ALL',ovr:'ALL',search:''},
+  ui:{squadSort:{key:'ovr',dir:'desc'}},
   sponsors:{active:null, offers:[]}, sponsorProgress:{wins:0,points:0,goals:0},
-  cup:{eligible:false, active:false, round:0, teams:[], fixtures:[], history:[]}
+  cup:{eligible:false, active:false, round:0, teams:[], fixtures:[], history:[]},
+  finance:{last:{tickets:0,food:0,merch:0,sponsor:0,wages:0,prize:0,net:0,home:true}}
 };
 
-const saveKey='blankball-save-v090';
+const saveKey='blankball-save-v091';
 function save(){ localStorage.setItem(saveKey, JSON.stringify(state)); alert('Opgeslagen.'); }
 function load(){ const raw=localStorage.getItem(saveKey); if(raw){ try{state=JSON.parse(raw);}catch(e){ console.warn('Save corrupt -> nieuw'); } } }
 function reset(){ if(confirm('Weet je zeker?')){ localStorage.removeItem(saveKey); location.reload(); } }
@@ -38,6 +40,7 @@ function roman(n){const r=['','I','II','III','IV','V']; return r[n]||String(n);}
 function baseOverall(posBias){ return clamp(Math.round(rand(35,55)+posBias+state.division*2),30,85); }
 function wageFromOvr(ovr){ return (ovr*ovr*8)+rand(500,2000); }
 function valueFromOvr(ovr){ return (ovr**2)*120 + rand(10_000,80_000); }
+function rid(){ try{return [...crypto.getRandomValues(new Uint32Array(3))].map(x=>x.toString(16)).join('');}catch{return String(Math.random()).slice(2)} }
 
 function genPlayer(pos){
   const bias={GK:0,DEF:2,MID:3,ATT:4}[pos]||0;
@@ -54,7 +57,6 @@ function genPlayer(pos){
   };
   p.wage=Math.round(wageFromOvr(p.ovr)/52); p.value=Math.round(valueFromOvr(p.ovr)); return p;
 }
-function rid(){ try{return [...crypto.getRandomValues(new Uint32Array(3))].map(x=>x.toString(16)).join('');}catch{return String(Math.random()).slice(2)} }
 
 function genInitialSquad(){
   const s=[]; s.push(genPlayer('GK')); s.push(genPlayer('GK'));
@@ -63,8 +65,13 @@ function genInitialSquad(){
   for(let i=0;i<4;i++) s.push(genPlayer('ATT'));
   s.sort((a,b)=>b.ovr-a.ovr); for(let i=0;i<3;i++) s[i].ovr+=4; return s;
 }
+
+// === League sizing ===
+function leagueTeamCountForDivision(div){ return (div===1)?18:12; }
+
 function genAIClubs(){
-  const count=12, arr=[];
+  const total=leagueTeamCountForDivision(state.division);
+  const count=total; const arr=[];
   for(let i=0;i<count-1;i++){
     arr.push({id:rid(),name:clubPool[i%clubPool.length]+' '+roman(6-state.division),
       rating:clamp(55+(5-state.division)*4+rand(-6,6),40,85),points:0,gf:0,ga:0,gd:0});
@@ -74,8 +81,10 @@ function genAIClubs(){
 
 function divisionName(){ return DIV_NAME[state.division]||`Divisie ${state.division}`; }
 
+// === Fixtures round-robin (home & away) ===
 function scheduleFixtures(){
-  const teams=[{id:'you',name:state.clubName,rating:avgOvrEffective(state.squad)}].concat(state.aiClubs.map(c=>({id:c.id,name:c.name,rating:c.rating})));
+  const teams=[{id:'you',name:state.clubName,rating:avgOvrEffective(state.squad)}]
+    .concat(state.aiClubs.map(c=>({id:c.id,name:c.name,rating:c.rating})));
   let n=teams.length; if(n%2===1){teams.push({id:'bye',name:'BYE',rating:0}); n++;}
   const half=n/2, rotation=teams.slice(1), rounds=n-1; const fixtures=[];
   for(let r=0;r<rounds;r++){
@@ -91,7 +100,7 @@ function scheduleFixtures(){
   const second=fixtures.map(f=>({home:f.away,away:f.home,md:f.md+rounds}));
   const all=fixtures.concat(second).map(f=>({id:rid(),md:f.md,played:false,home:f.home,away:f.away,
     homeName:f.home==='you'?state.clubName:state.aiClubs.find(x=>x.id===f.home)?.name||'?',
-    awayName:f.away==='you'?state.clubName:state.aiClubs.find(x=>x.id===f.away)?.name||'?',score:null}));
+    awayName:f.away==='you'?state.clubName:state.aiClubs.find(x=>x.id===f.away)?.name||'?',score:null,events:[]}));
   state.fixtures=all;
   state.table=[{id:'you',name:state.clubName,pts:0,gf:0,ga:0,gd:0}, ...state.aiClubs.map(c=>({id:c.id,name:c.name,pts:0,gf:0,ga:0,gd:0}))];
   state.matchday=1;
@@ -105,6 +114,8 @@ function avgOvrEffective(sq){
   const missing=sq.length-active.length;
   return Math.max(30,Math.round(base-missing*1.8));
 }
+
+// Tactics impact
 function tacticsModifiers(){
   const st=state.tactics.style, fm=state.tactics.formation;
   let fbonus=0; if(fm==='3-5-2') fbonus=1; if(fm==='4-3-3') fbonus=0.5;
@@ -122,10 +133,37 @@ function playMatch(hr,ar,homeIsYou,awayIsYou){
   const ag=poisson(lambdaFromRating(A,H)*gb - bias);
   return [hg,ag];
 }
+
+// Beker: ET + penals
+function cupTieWithETP(hr,ar,homeIsYou,awayIsYou){
+  let [h,a]=playMatch(hr,ar,homeIsYou,awayIsYou);
+  if(h!==a) return {h,a,et:false,pens:false,homeWin:h>a};
+  // extra time (verlenging): kleinere intensiteit
+  const etH = poisson(lambdaFromRating(hr,ar)*0.45);
+  const etA = poisson(lambdaFromRating(ar,hr)*0.45);
+  h+=etH; a+=etA;
+  if(h!==a) return {h,a,et:true,pens:false,homeWin:h>a};
+  // penalty's met lichte ratingbias
+  const bias = (hr - ar) / 100; // -1..+1 ~
+  const homeWin = Math.random() < (0.5 + clamp(bias, -0.1, 0.1));
+  return {h,a,et:true,pens:true,homeWin};
+}
+
 function addResult(idA,ga,idB,gb){
   const tA=state.table.find(t=>t.id===idA), tB=state.table.find(t=>t.id===idB); if(!tA||!tB) return;
   tA.gf+=ga; tA.ga+=gb; tA.gd=tA.gf-tA.ga; tB.gf+=gb; tB.ga+=ga; tB.gd=tB.gf-tB.ga;
   if(ga>gb) tA.pts+=3; else if(ga<gb) tB.pts+=3; else {tA.pts+=1; tB.pts+=1;}
+}
+
+function simulateCardsFor(starters){
+  starters.forEach(p=>{ let y=0, r=false; if(Math.random()<0.08) y=1; if(Math.random()<0.015) r=true; if(!r&&y===1&&Math.random()<0.03) r=true; p.yellows+=y; if(r){p.reds+=1;p.suspended+=1;} if(y>0&&p.yellows%5===0) p.suspended+=1; });
+}
+function makeAutoSubs(starters){
+  const bench=state.bench.map(id=>state.squad.find(p=>p.id===id)).filter(p=>p&&p.injured<=0&&p.suspended<=0);
+  const maxAllowed=Math.min(5,bench.length), desired=Math.max(0,Math.min(maxAllowed,3+Math.floor(Math.random()*3))); if(desired===0) return {count:0,boost:0};
+  const subs=bench.slice().sort((a,b)=>b.ovr-a.ovr).slice(0,desired), field=starters.slice(); const replaced=[];
+  subs.forEach(sub=>{ let cands=field.filter(p=>p.pos===sub.pos); if(!cands.length) cands=field.slice(); cands.sort((a,b)=>a.ovr-b.ovr); const t=cands[0]; if(t){ replaced.push(t); const idx=field.findIndex(x=>x.id===t.id); if(idx>-1) field.splice(idx,1); } sub.apps++; });
+  const avg=a=>a.length?a.reduce((s,p)=>s+p.ovr,0)/a.length:0; const boost=Math.max(0,(avg(subs)-avg(replaced))/8); return {count:subs.length,boost};
 }
 
 function playNextMatchday(){
@@ -149,8 +187,21 @@ function playNextMatchday(){
     if(homeYou||awayYou){ if(res[0]!==res[1]){ if((homeYou&&res[0]>res[1])||(awayYou&&res[1]>res[0])) state.sponsorProgress.wins++; } state.sponsorProgress.points+=(res[0]>res[1]?3:res[0]===res[1]?1:0); state.sponsorProgress.goals+=(homeYou?res[0]:res[1]);}
   });
 
-  const weekly=state.squad.reduce((a,p)=>a+p.wage,0); state.budget=Math.max(0,state.budget-weekly);
-  if(youHadMatch){ const rev=matchdayRevenue(youHome); state.budget+=rev; toast(`Inkomsten speeldag: ${fmt(rev)}${state.sponsors.active?` • Sponsor ${fmt(state.sponsors.active.baseWeekly)}`:''}`); if(state.sponsors.active) state.budget+=state.sponsors.active.baseWeekly; }
+  // Finance: wages and revenue
+  const weekly=state.squad.reduce((a,p)=>a+p.wage,0);
+  state.budget=Math.max(0,state.budget-weekly);
+  let last={tickets:0,food:0,merch:0,sponsor:0,wages:weekly,prize:0,net:0,home:true};
+  if(youHadMatch){
+    const rev=breakdownMatchdayRevenue(youHome);
+    state.budget+=rev.total;
+    last.tickets=rev.tickets; last.food=rev.food; last.merch=rev.merch; last.home=youHome;
+    if(state.sponsors.active){ state.budget+=state.sponsors.active.baseWeekly; last.sponsor=state.sponsors.active.baseWeekly; }
+  }else{
+    if(state.sponsors.active){ state.budget+=state.sponsors.active.baseWeekly; last.sponsor=state.sponsors.active.baseWeekly; }
+  }
+  last.net = (last.tickets+last.food+last.merch+last.sponsor+last.prize) - last.wages;
+  state.finance.last = last;
+
   injuriesTick(); trainTick(); generateOffersTick();
   state.matchday++; render();
 }
@@ -201,14 +252,15 @@ const DIV_CAP={5:1200,4:5000,3:12000,2:25000,1:50000};
 function stadiumCapacity(l){ const lvl=STADIUM_LVL[clamp(l,1,10)], cap=DIV_CAP[state.division]||1200; return Math.min(lvl,cap); }
 function ticketPrice(){ return 10+(6-state.division)*3; }
 function baseDemand(){ return 300+(6-state.division)*2500; }
-function matchdayRevenue(home){
+function breakdownMatchdayRevenue(home){
   const cap=stadiumCapacity(state.stadium); let d=baseDemand()+rand(-600,1000);
   let att=home?Math.min(cap,Math.max(150,Math.round(d))):Math.round(Math.min(cap,d)*0.35);
   const tickets=att*ticketPrice(), food=Math.round(att*(state.stadium>=6?5.5:4.0)), merch=Math.round(att*(state.division<=2?2.5:1.2));
-  const gross=tickets+food+merch; return home?gross:Math.round(gross*0.25);
+  const total= home? tickets+food+merch : Math.round((tickets+food+merch)*0.25);
+  return {tickets:home?tickets:Math.round(tickets*0.25), food:home?food:Math.round(food*0.25), merch:home?merch:Math.round(merch*0.25), total};
 }
 
-// Youth
+// Youth & Sponsors (ongewijzigd functioneel)
 function generateYouthPool(){
   const c=2+Math.ceil(state.youth/2), arr=[];
   for(let i=0;i<c;i++){ const pos=choice(POS); const p=genPlayer(pos); p.age=rand(15,18); p.ovr=clamp(rand(30,45)+state.youth,25,75); p.pot=clamp(p.ovr+rand(10,30)+state.youth,p.ovr+8,99); p.value=Math.round(valueFromOvr(p.ovr)*0.4); p.wage=Math.max(200,Math.round(p.wage*0.4)); arr.push(p); }
@@ -216,7 +268,6 @@ function generateYouthPool(){
 }
 function signYouth(id){ const p=state.youthPool.find(x=>x.id===id); if(!p) return; if(state.squad.length>=32) return alert('Selectie vol (32)'); state.squad.push(p); state.youthPool=state.youthPool.filter(x=>x.id!==id); render(); }
 
-// Sponsors
 function genSponsorOffers(){
   const brands=['EnergyUp','Kaas&Co','TechNova','SfeerShots','PixelPro','GreenBank','AirNL','Spurt','StadionShop','CryptoCat'];
   const arr=[]; for(let i=0;i<3;i++){ const brand=choice(brands);
@@ -241,7 +292,7 @@ function sponsorProgressText(){
   return `Voortgang: ${have}/${target}`;
 }
 
-// Contracts
+// Contracts & tactics (idem vorige)
 function desiredWage(p){
   const base=Math.round(wageFromOvr(p.ovr)/52);
   const ageAdj=(p.age<=22?1.1:(p.age>=30?0.95:1.0));
@@ -292,7 +343,7 @@ function pickStartingXI(){
   function bestOf(arr,n){ return arr.slice(0,n); }
 }
 
-// Cup
+// === Cup (knock-out) met ET + penals ===
 function cupEligible(){ return state.division<=3; }
 function genCupTeams(){
   const teams=[{id:'you',name:state.clubName,div:state.division, rating:avgOvrEffective(state.squad)}];
@@ -328,16 +379,16 @@ function cupPlayRound(){
   fx.forEach(f=>{
     let hr=(f.home==='you')?youRate:(state.cup.teams.find(t=>t.id===f.home)?.rating||60);
     let ar=(f.away==='you')?youRate:(state.cup.teams.find(t=>t.id===f.away)?.rating||60);
-    const res=playMatch(hr,ar,f.home==='you',f.away==='you'); f.score=res; f.played=true;
-    let winHome = res[0]>res[1]; if(res[0]===res[1]){ winHome = Math.random()<0.5; }
-    const winnerId=winHome?f.home:f.away;
+    const r=cupTieWithETP(hr,ar,f.home==='you',f.away==='you');
+    f.score=[r.h,r.a]; f.played=true;
+    const winnerId=r.homeWin?f.home:f.away;
     nextTeams.push(state.cup.teams.find(t=>t.id===winnerId));
   });
   const roundPrize={32:80_000,16:120_000,8:200_000,4:320_000,2:600_000,1:1_000_000}[state.cup.round]||80_000;
   const youInFx = fx.find(f=>f.home==='you'||f.away==='you');
   if(youInFx){
-    const youWon = (youInFx.score[0]>youInFx.score[1] && youInFx.home==='you') || (youInFx.score[1]>youInFx.score[0] && youInFx.away==='you') || (youInFx.score[0]===youInFx.score[1] && Math.random()<0.5);
-    if(youWon){ state.budget += roundPrize; toast(`Beker: door naar volgende ronde! Prijs: ${fmt(roundPrize)}`); }
+    const youWon = ((youInFx.score[0]>youInFx.score[1] && youInFx.home==='you') || (youInFx.score[1]>youInFx.score[0] && youInFx.away==='you'));
+    if(youWon){ state.budget += roundPrize; state.finance.last.prize += roundPrize; toast(`Beker: door naar volgende ronde! Prijs: ${fmt(roundPrize)}`); }
     else { toast('Beker: uitgeschakeld.'); }
   }
   state.cup.history.push(...fx);
@@ -353,55 +404,86 @@ function cupPlayRound(){
   }
   render();
 }
+
+// Shuffle
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
 
-// XI & DnD
+// XI & DnD helpers
 function ensureArrays(){ if(!Array.isArray(state.lineup)) state.lineup=Array(11).fill(null); if(!Array.isArray(state.bench)) state.bench=Array(6).fill(null); }
 function removeEverywhere(pid){ if(!pid) return; const li=state.lineup.indexOf(pid); if(li>-1) state.lineup[li]=null; const bi=state.bench.indexOf(pid); if(bi>-1) state.bench[bi]=null; }
-function toggleXI(id){
-  ensureArrays(); const p=state.squad.find(x=>x.id===id); if(!p||p.injured>0||p.suspended>0) return;
-  const idx=state.lineup.indexOf(id); if(idx>-1){ state.lineup[idx]=null; } else{ const free=state.lineup.findIndex(x=>!x); if(free===-1) return alert('Je XI zit vol (11)'); removeEverywhere(id); state.lineup[free]=id; } render();
-}
-function autoXI(){ ensureArrays(); const best=pickStartingXI().map(p=>p.id); for(let i=0;i<11;i++) state.lineup[i]=best[i]||null; render(); }
-function clearXI(){ ensureArrays(); for(let i=0;i<11;i++) state.lineup[i]=null; render(); }
-function clearBench(){ ensureArrays(); for(let i=0;i<6;i++) state.bench[i]=null; render(); }
-function dragStart(e,from,id,slot){ state._drag={from,id,slot}; }
-function dropToXI(e,idx){ e.preventDefault(); ensureArrays(); const d=state._drag||{}; const p=state.squad.find(x=>x.id===d.id); if(!p||p.injured>0||p.suspended>0) return; removeEverywhere(p.id); state.lineup[idx]=p.id; render(); }
-function dropToBench(e,idx){ e.preventDefault(); ensureArrays(); const d=state._drag||{}; const p=state.squad.find(x=>x.id===d.id); if(!p||p.injured>0||p.suspended>0) return; removeEverywhere(p.id); state.bench[idx]=p.id; render(); }
 
-// Cards/Subs
-function simulateCardsFor(starters){
-  starters.forEach(p=>{ let y=0, r=false; if(Math.random()<0.08) y=1; if(Math.random()<0.015) r=true; if(!r&&y===1&&Math.random()<0.03) r=true; p.yellows+=y; if(r){p.reds+=1;p.suspended+=1;} if(y>0&&p.yellows%5===0) p.suspended+=1; });
-}
-function makeAutoSubs(starters){
-  const bench=state.bench.map(id=>state.squad.find(p=>p.id===id)).filter(p=>p&&p.injured<=0&&p.suspended<=0);
-  const maxAllowed=Math.min(5,bench.length), desired=Math.max(0,Math.min(maxAllowed,3+Math.floor(Math.random()*3))); if(desired===0) return {count:0,boost:0};
-  const subs=bench.slice().sort((a,b)=>b.ovr-a.ovr).slice(0,desired), field=starters.slice(); const replaced=[];
-  subs.forEach(sub=>{ let cands=field.filter(p=>p.pos===sub.pos); if(!cands.length) cands=field.slice(); cands.sort((a,b)=>a.ovr-b.ovr); const t=cands[0]; if(t){ replaced.push(t); const idx=field.findIndex(x=>x.id===t.id); if(idx>-1) field.splice(idx,1); } sub.apps++; });
-  const avg=a=>a.length?a.reduce((s,p)=>s+p.ovr,0)/a.length:0; const boost=Math.max(0,(avg(subs)-avg(replaced))/8); return {count:subs.length,boost};
-}
-
-// End season
+// === End season with new promotion/relegation rules ===
 function endSeason(){
   state.table.sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf);
   const pos=state.table.findIndex(t=>t.id==='you')+1;
   let msg=`Seizoen ${state.season} klaar. Positie: ${pos}/${state.table.length}.`;
   const prize=Math.round(800_000/state.division*(state.table.length-pos+1)*0.6); state.budget+=prize; msg+=`\nPrijzengeld: ${fmt(prize)}`;
+
+  // Sponsor bonus
   if(state.sponsors.active){ const a=state.sponsors.active; const sp=state.sponsorProgress; const t=a.objective; let ok=false;
     if(t.type==='wins') ok=sp.wins>=t.target; if(t.type==='points') ok=sp.points>=t.target; if(t.type==='goals') ok=sp.goals>=t.target; if(t.type==='position') ok=pos<=t.target;
     if(ok){ state.budget+=a.bonus; msg+=`\nSponsorbonus: ${fmt(a.bonus)} (doel gehaald)`; } else msg+='\nSponsorbonus gemist.'; }
-  if(pos<=2 && state.division>1){ state.division--; msg+=`\nPROMOTIE → ${divisionName()}`; }
-  else if(pos>=state.table.length-1 && state.division<5){ state.division++; msg+=`\nDegradatie → ${divisionName()}`; }
+
+  // Promotion/rel rules
+  const lastIdx=state.table.length;
+  const origDivision = state.division;
+  let playoffTriggered=false;
+
+  if(state.division===1){
+    // Kampioen Divisie (18 teams): 17-18 directe degradatie, 16 naar PO tegen Hoofdklasse PO-winnaar (buiten jouw sim als jij niet in D1)
+    if(pos>=17){ state.division=2; msg+=`\nDegradatie → ${divisionName()}`; }
+    // pos 16: niets nu, tenzij jij daar eindigt -> markeer playoff placeholder
+    if(pos===16){
+      // Als user eindigt 16e: één beslissingsduel vs Hoofdklasse PO-winnaar (simuleer rating ~ 66)
+      const oppRating=66+rand(-3,3);
+      const youRate=avgOvrEffective(state.squad);
+      const tie=cupTieWithETP(youRate,oppRating,true,false);
+      if(tie.homeWin){ msg+=`\nPlay-off gewonnen: je blijft in ${DIV_NAME[1]}.`; }
+      else{ state.division=2; msg+=`\nPlay-off verloren: degradatie → Hoofdklasse.`; }
+    }
+  } else if(state.division===2){
+    // Hoofdklasse: #1-2 promotie, #3–6 play-offs; winnaar speelt beslissingsduel vs Div1 #16 (simuleer)
+    if(pos<=2){ state.division=1; msg+=`\nPROMOTIE → ${DIV_NAME[1]}`; }
+    else if(pos>=3 && pos<=6){
+      playoffTriggered=true;
+      const seeds=[3,4,5,6]; const yourSeed=pos;
+      // Semis: (3 vs 6) & (4 vs 5), dan finale (single-leg), dan beslissingsduel vs Div1 #16
+      const youRate=avgOvrEffective(state.squad);
+      const oppRateSemi = 60 + (6 - (yourSeed===3?6: yourSeed===4?5: yourSeed===5?4:3)) + rand(-2,2); // simpele approx
+      let r1=cupTieWithETP(youRate, oppRateSemi, true, false);
+      if(!r1.homeWin){ msg+=`\nPlay-offs: uit in halve finale.`; }
+      else{
+        const oppRateFinal = 62 + rand(-2,2);
+        let r2=cupTieWithETP(youRate, oppRateFinal, true, false);
+        if(!r2.homeWin){ msg+=`\nPlay-offs: finale verloren.`; }
+        else{
+          const oppDiv1 = 66+rand(-3,3);
+          let r3=cupTieWithETP(youRate, oppDiv1, true, false);
+          if(r3.homeWin){ state.division=1; msg+=`\nPlay-offs gewonnen: PROMOTIE → ${DIV_NAME[1]}`; }
+          else{ msg+=`\nBeslissingsduel verloren: blijf in Hoofdklasse.`; }
+        }
+      }
+    } else if(pos===lastIdx){ state.division=3; msg+=`\nDegradatie → ${DIV_NAME[3]}`; }
+  } else {
+    // Overige divisies: behoud simpele regel (top2 promotie, laatste degradeert)
+    if(pos<=2 && state.division>1){ state.division--; msg+=`\nPROMOTIE → ${divisionName()}`; }
+    else if(pos===lastIdx && state.division<5){ state.division++; msg+=`\nDegradatie → ${divisionName()}`; }
+  }
+
+  // Ageing etc.
   state.squad.forEach(p=>{ p.age++; if(p.contract>0) p.contract--; if(p.injured>0) p.injured=Math.max(0,p.injured-1); p.suspended=0; p.yellows=0; p.reds=0; p.apps=0; });
   state.squad=state.squad.filter(p=>{ if(p.contract<=0 && Math.random()<0.5) return false; if(p.age<=26) p.ovr=clamp(p.ovr+rand(0,2),1,99); if(p.age>=31) p.ovr=clamp(p.ovr-rand(0,2),1,99); p.value=Math.round(valueFromOvr(p.ovr)); p.wage=Math.round(wageFromOvr(p.ovr)/52); return true; });
+
   alert(msg);
+
+  // New season seed
   state.season++; state.sponsorProgress={wins:0,points:0,goals:0};
   genSponsorOffers(); state.aiClubs=genAIClubs(); scheduleFixtures(); refreshMarket(); generateYouthPool(); state.offers=[];
   cupResetStart();
   render();
 }
 
-// Views
+// === Views (incl. sortable tables & stand kleuren) ===
 function viewSquad(){
   const posOps=['ALL','GK','DEF','MID','ATT'], statOps=['ALL','FIT','INJ','SUS','LISTED'], ovrOps=['ALL','50+','60+','70+'];
   const posChips=posOps.map(p=>`<span class="chip ${state.filters.pos===p?'active':''}" data-pos="${p}">${p}</span>`).join('');
@@ -415,7 +497,17 @@ function viewSquad(){
   if(state.filters.status==='LISTED') list=list.filter(p=>p.listed);
   if(state.filters.ovr!=='ALL'){ const t=parseInt(state.filters.ovr); list=list.filter(p=>p.ovr>=t); }
   const q=state.filters.search.toLowerCase().trim(); if(q) list=list.filter(p=>`${p.name} ${p.pos}`.toLowerCase().includes(q));
-  const rows=list.sort((a,b)=>b.ovr-a.ovr).map(p=>`<tr>
+
+  // sort
+  const sort=state.ui.squadSort||{key:'ovr',dir:'desc'};
+  const dir = sort.dir==='asc'?1:-1;
+  list.sort((a,b)=>{
+    const va = (sort.key==='name')? a.name : (sort.key==='pos'? a.pos : a[sort.key]);
+    const vb = (sort.key==='name')? b.name : (sort.key==='pos'? b.pos : b[sort.key]);
+    if(va<vb) return -1*dir; if(va>vb) return 1*dir; return 0;
+  });
+
+  const rows=list.map(p=>`<tr>
     <td class="pos">${p.pos}</td>
     <td><strong>${p.name}</strong>
       <div class="muted">${p.age} jr • Pot ${p.pot}
@@ -435,15 +527,33 @@ function viewSquad(){
       <button class="secondary" onclick="app.toggleList('${p.id}')">${p.listed?'Van TL':'Op TL'}</button>
     </td>
   </tr>`).join('');
-  const inj=state.squad.filter(p=>p.injured>0).length, sus=state.squad.filter(p=>p.suspended>0).length;
+
   return `<div class="grid grid-2">
     <div class="card">
-      <h2>Selectie (${state.squad.length}) — Gem. OVR ${avgOvr(state.squad)} ${inj?`<span class=tag>${inj} blessures</span>`:''} ${sus?`<span class=tag>${sus} schorsingen</span>`:''}</h2>
+      <h2>Selectie (${state.squad.length}) — Gem. OVR ${avgOvr(state.squad)}</h2>
       <div class="chips" id="posChips">${posChips}</div>
       <div class="chips" id="statusChips" style="margin-top:6px">${statChips}</div>
       <div class="chips" id="ovrChips" style="margin:6px 0">${ovrChips}</div>
       <input id="searchInput" placeholder="Zoek speler/positie..." style="width:100%;padding:8px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:#0f1728;color:#e5e7eb;margin:6px 0" value="${state.filters.search.replace(/"/g,'&quot;')}">
-      <table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>PAC</th><th>PAS</th><th>SHO</th><th>DEF</th><th>Apps</th><th>Contract</th><th>Loon</th><th>Waarde</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <table>
+        <thead>
+          <tr>
+            <th class="sortable" data-key="pos">Pos</th>
+            <th class="sortable" data-key="name">Naam</th>
+            <th class="sortable" data-key="ovr">OVR</th>
+            <th class="sortable" data-key="pace">PAC</th>
+            <th class="sortable" data-key="passing">PAS</th>
+            <th class="sortable" data-key="shooting">SHO</th>
+            <th class="sortable" data-key="defense">DEF</th>
+            <th class="sortable" data-key="apps">Apps</th>
+            <th class="sortable" data-key="contract">Contract</th>
+            <th class="sortable" data-key="wage">Loon</th>
+            <th class="sortable" data-key="value">Waarde</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
     </div>
     <div class="card">
       <h2>Teamsterkte</h2>
@@ -454,6 +564,7 @@ function viewSquad(){
 }
 
 function viewTactics(){
+  // (ongewijzigd t.o.v. 0.9)
   const style=state.tactics.style, form=state.tactics.formation;
   const styleChips=[['defensive','Zeer verdedigend'],['possession','Balbezit'],['attacking','Zeer aanvallend']].map(([k,l])=>`<span class="chip ${style===k?'active':''}" data-style="${k}">${l}</span>`).join('');
   const formChips=Object.keys(FORMATIONS).map(k=>`<span class="chip ${form===k?'active':''}" data-form="${k}">${k}</span>`).join('');
@@ -488,10 +599,30 @@ function viewTactics(){
 
 function viewFixtures(){
   const fixtures=state.fixtures.map(f=>{ const s=f.score?`${f.score[0]} - ${f.score[1]}`:'<span class="muted">–</span>'; const you=(f.home==='you'||f.away==='you'); return `<tr ${you?"style='font-weight:700'":''}><td>${f.md}</td><td>${f.homeName}</td><td>${f.awayName}</td><td>${s}</td></tr>` }).join('');
-  const tableRows=state.table.slice().sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf).map((t,i)=>`<tr ${t.id==='you'?"style='font-weight:700'":''}><td>${i+1}</td><td>${t.name}</td><td>${t.pts}</td><td>${t.gf}</td><td>${t.ga}</td><td>${t.gd}</td></tr>`).join('');
+  // Stand met zones
+  const sorted=state.table.slice().sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf);
+  const total=sorted.length;
+  const rows=sorted.map((t,i)=>{
+    let cls='';
+    if(state.division===1){ if(i>=total-2) cls='tr-relegate'; else if(i===15) cls='tr-playoff'; }
+    else if(state.division===2){ if(i<=1) cls='tr-promote'; else if(i>=2 && i<=5) cls='tr-playoff'; else if(i===total-1) cls='tr-relegate'; }
+    else { if(i<=1) cls='tr-promote'; if(i===total-1) cls+=' tr-relegate'; }
+    const you=t.id==='you';
+    return `<tr class="${cls} ${you?'":style="font-weight:700"':''}"><td>${i+1}</td><td>${t.name}</td><td>${t.pts}</td><td>${t.gf}</td><td>${t.ga}</td><td>${t.gd}</td></tr>`;
+  }).join('');
   return `<div class="grid grid-2">
     <div class="card"><h2>Programma</h2><table><thead><tr><th>MD</th><th>Thuis</th><th>Uit</th><th>Score</th></tr></thead><tbody>${fixtures}</tbody></table></div>
-    <div class="card"><h2>Stand — ${divisionName()}</h2><table><thead><tr><th>#</th><th>Club</th><th>Pt</th><th>DV</th><th>DT</th><th>DS</th></tr></thead><tbody>${tableRows}</tbody></table></div>
+    <div class="card"><h2>Stand — ${divisionName()}</h2>
+      <table>
+        <thead><tr><th>#</th><th>Club</th><th>Pt</th><th>DV</th><th>DT</th><th>DS</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="muted" style="margin-top:6px">
+        <span class="tag" style="background:rgba(34,197,94,.12)">Promotie</span>
+        <span class="tag" style="background:rgba(245,158,11,.12)">Play-offs</span>
+        <span class="tag" style="background:rgba(239,68,68,.12)">Degradatie</span>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -519,8 +650,6 @@ function viewSponsors(){
 
 function viewYouth(){ const rows=state.youthPool.map(p=>`<tr><td class="pos">${p.pos}</td><td><strong>${p.name}</strong><div class="muted">${p.age} jr • Pot ${p.pot}</div></td><td>${p.ovr}</td><td class="money">${fmt(p.wage)}/w</td><td><button class="primary" onclick="app.signYouth('${p.id}')">Teken</button></td></tr>`).join(''); return `<div class="card"><h2>Jeugdinstroom</h2><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Loon</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`; }
 
-function viewClub(){ return `<div class="grid grid-2"><div class="card"><h2>Clubinfo</h2><div class="muted">Naam: <strong>${state.clubName}</strong></div><div class="muted">Divisie: ${divisionName()}</div><div class="muted">Seizoen: ${state.season}</div><div class="muted">Gem. OVR selectie: ${avgOvr(state.squad)}</div><div class="muted">Stadion: Niveau ${state.stadium} • ${stadiumCapacity(state.stadium).toLocaleString('nl-NL')} plekken</div></div><div class="card"><h2>Acties</h2><button onclick="app.refreshMarket()">Ververs markt</button> <button onclick="app.generateYouthPool()">Nieuwe jeugd</button></div></div>`; }
-
 function viewCup(){
   if(!state.cup.eligible) return `<div class="card"><h2>Beker</h2><div class="muted">Je doet mee vanaf de <strong>3e divisie</strong>. Jouw club zit nu in ${divisionName()}.</div></div>`;
   const r=state.cup.round||0, fx=state.cup.fixtures||[];
@@ -533,7 +662,7 @@ function viewCup(){
   return `<div class="grid grid-2">${top}${mid}${bot}</div>`;
 }
 
-// Render
+// === Render & UI wiring ===
 function render(){
   byId('title').textContent=`${state.clubName} — ${divisionName()}`;
   byId('subtitle').textContent=`Seizoen ${state.season} • Gem. OVR ${avgOvr(state.squad)} • Eff. ${avgOvrEffective(state.squad)}`;
@@ -555,15 +684,23 @@ function render(){
   if(active==='club') html=viewClub();
   view.innerHTML=html;
 
-  if(active==='tactics'){
-    qsa('#styleChips .chip').forEach(ch=>ch.addEventListener('click',()=>{ state.tactics.style=ch.getAttribute('data-style'); render(); }));
-    qsa('#formChips .chip').forEach(ch=>ch.addEventListener('click',()=>{ state.tactics.formation=ch.getAttribute('data-form'); render(); }));
-  }
+  // Sorting headers (squad)
   if(active==='squad'){
+    qsa('th.sortable').forEach(th=>th.addEventListener('click',()=>{
+      const key=th.getAttribute('data-key');
+      const cur=state.ui.squadSort||{key:'ovr',dir:'desc'};
+      const dir = (cur.key===key && cur.dir==='desc')? 'asc' : (cur.key===key && cur.dir==='asc')? 'desc':'desc';
+      state.ui.squadSort={key,dir}; render();
+    }));
     qsa('#posChips .chip').forEach(ch=>ch.addEventListener('click',()=>{ state.filters.pos=ch.getAttribute('data-pos'); render(); }));
     qsa('#statusChips .chip').forEach(ch=>ch.addEventListener('click',()=>{ state.filters.status=ch.getAttribute('data-status'); render(); }));
     qsa('#ovrChips .chip').forEach(ch=>ch.addEventListener('click',()=>{ state.filters.ovr=ch.getAttribute('data-ovr'); render(); }));
     const si=byId('searchInput'); if(si) si.addEventListener('input',()=>{ state.filters.search=si.value; });
+  }
+
+  if(active==='tactics'){
+    qsa('#styleChips .chip').forEach(ch=>ch.addEventListener('click',()=>{ state.tactics.style=ch.getAttribute('data-style'); render(); }));
+    qsa('#formChips .chip').forEach(ch=>ch.addEventListener('click',()=>{ state.tactics.formation=ch.getAttribute('data-form'); render(); }));
   }
 }
 
@@ -575,11 +712,64 @@ function qsa(sel){return Array.from(document.querySelectorAll(sel))}
 function attach(){
   qsa('.tab').forEach(el=>el.addEventListener('click',()=>{ qsa('.tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); render(); }));
   byId('playBtn').addEventListener('click',playNextMatchday);
-  byId('simulateBtn').addEventListener('click',()=>{ const maxMd=Math.max(...state.fixtures.map(f=>f.md)); while(state.matchday<=maxMd){ playNextMatchday(); } });
+
+  // === Smart simulate (#13) ===
+  byId('simulateBtn').addEventListener('click',()=>{
+    const maxMd=Math.max(...state.fixtures.map(f=>f.md));
+    const choiceStr = prompt(
+`Simuleer:
+1 = tot winterstop
+2 = volledige seizoen
+3 = tot volgende beker-actie (loting/wedstrijd)
+(1/2/3)`, '2');
+    if(!choiceStr) return;
+    const c = parseInt(choiceStr)||2;
+
+    if(c===1){
+      const half = Math.ceil(maxMd/2);
+      while(state.matchday<=half){ playNextMatchday(); }
+      alert('Gesimuleerd tot winterstop.');
+    } else if(c===2){
+      while(state.matchday<=maxMd){ playNextMatchday(); }
+    } else {
+      // tot volgende beker-actie: stop zodra (a) je beker loting/wedstrijd klaarstaat of (b) beker klaar is
+      while(true){
+        const beforeActive = state.cup.active;
+        const hadPending = state.cup.active && state.cup.fixtures.length>0 && state.cup.fixtures.some(f=>!f.played && (f.home==='you'||f.away==='you'));
+        if(hadPending) break; // al iets om te doen
+        if(state.matchday>maxMd) break;
+        playNextMatchday();
+        // na speeldag: check of nieuwe loting mogelijk is (we laten gebruiker handmatig loten)
+        if(beforeActive && state.cup.active && state.cup.fixtures.length===0){ alert('Beker: je kunt nu loten of spelen via de Beker-tab.'); break; }
+        if(!state.cup.active) { /* beker afgelopen, ga door tot einde of breek */ break; }
+      }
+    }
+  });
+
   byId('saveBtn').addEventListener('click',save);
   byId('resetBtn').addEventListener('click',reset);
   byId('renameBtn').addEventListener('click',()=>{ const n=prompt('Nieuwe clubnaam:', state.clubName); if(n&&n.trim()){ state.clubName=n.trim(); const me=state.table.find(t=>t.id==='you'); if(me) me.name=state.clubName; state.fixtures.forEach(f=>{ if(f.home==='you') f.homeName=state.clubName; if(f.away==='you') f.awayName=state.clubName; }); render(); } });
+
+  // Finance popover (#15)
+  byId('financeCard').addEventListener('click',()=>{
+    const L=state.finance.last||{tickets:0,food:0,merch:0,sponsor:0,wages:0,prize:0,net:0,home:true};
+    const body=byId('popoverBody');
+    body.innerHTML = `
+      <div class="row"><span>Thuis/Uit</span><strong>${L.home?'Thuis':'Uit'}</strong></div>
+      <div class="row"><span>Tickets</span><strong>${fmt(L.tickets)}</strong></div>
+      <div class="row"><span>Food & Drinks</span><strong>${fmt(L.food)}</strong></div>
+      <div class="row"><span>Merchandise</span><strong>${fmt(L.merch)}</strong></div>
+      <div class="row"><span>Sponsor (week)</span><strong>${fmt(L.sponsor)}</strong></div>
+      <div class="row"><span>Prijzengeld</span><strong>${fmt(L.prize)}</strong></div>
+      <div class="row"><span>Lonen</span><strong>- ${fmt(L.wages)}</strong></div>
+      <div class="row"><span>Netto</span><strong>${fmt(L.net)}</strong></div>
+    `;
+    byId('popover').classList.remove('hidden');
+  });
+  byId('popoverClose').addEventListener('click',()=>byId('popover').classList.add('hidden'));
+  byId('popover').addEventListener('click',(e)=>{ if(e.target.id==='popover') byId('popover').classList.add('hidden'); });
 }
+
 function init(){
   load();
   if(!state.squad || state.squad.length===0){
@@ -590,6 +780,7 @@ function init(){
     state.offers=state.offers||[]; ensureArrays();
     state.tactics=state.tactics||{style:'defensive',formation:'4-3-3'};
     state.filters=state.filters||{pos:'ALL',status:'ALL',ovr:'ALL',search:''};
+    state.ui=state.ui||{squadSort:{key:'ovr',dir:'desc'}};
     state.sponsors=state.sponsors||{active:null,offers:[]};
     state.sponsorProgress=state.sponsorProgress||{wins:0,points:0,goals:0};
     if(!state.sponsors.offers||state.sponsors.offers.length===0) genSponsorOffers();
@@ -601,11 +792,17 @@ function init(){
   attach(); render();
 }
 
-// expose to window
+// Expose
 window.app={
   buy:buyPlayer, release:releasePlayer, toggleList, accept:acceptOffer, reject:rejectOffer,
   upgrade, refreshMarket, generateYouthPool, signYouth,
-  toggleXI, autoXI, clearXI, clearBench, dragStart, dropToXI, dropToBench,
+  toggleXI:(id)=>{ensureArrays(); const p=state.squad.find(x=>x.id===id); if(!p||p.injured>0||p.suspended>0) return; const idx=state.lineup.indexOf(id); if(idx>-1){ state.lineup[idx]=null; } else{ const free=state.lineup.findIndex(x=>!x); if(free===-1) return alert('Je XI zit vol (11)'); removeEverywhere(id); state.lineup[free]=id; } render();},
+  autoXI:()=>{ ensureArrays(); const best=pickStartingXI().map(p=>p.id); for(let i=0;i<11;i++) state.lineup[i]=best[i]||null; render(); },
+  clearXI:()=>{ ensureArrays(); for(let i=0;i<11;i++) state.lineup[i]=null; render(); },
+  clearBench:()=>{ ensureArrays(); for(let i=0;i<6;i++) state.bench[i]=null; render(); },
+  dragStart:(e,from,id,slot)=>{ state._drag={from,id,slot}; },
+  dropToXI:(e,idx)=>{ e.preventDefault(); ensureArrays(); const d=state._drag||{}; const p=state.squad.find(x=>x.id===d.id); if(!p||p.injured>0||p.suspended>0) return; removeEverywhere(p.id); state.lineup[idx]=p.id; render(); },
+  dropToBench:(e,idx)=>{ e.preventDefault(); ensureArrays(); const d=state._drag||{}; const p=state.squad.find(x=>x.id===d.id); if(!p||p.injured>0||p.suspended>0) return; removeEverywhere(p.id); state.bench[idx]=p.id; render(); },
   clearSlotXI:(i)=>{state.lineup[i]=null; render();}, clearSlotBench:(i)=>{state.bench[i]=null; render();},
   saveXI:()=>toast('Opstelling & bank opgeslagen.'),
   acceptSponsor, cancelSponsor,

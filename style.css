@@ -10,7 +10,9 @@ button:hover{transform:translateY(-1px);background:#232d3b}
 button.primary{background:var(--accent);color:#06250f;border-color:#1ea752;font-weight:700}
 button.secondary{background:#1a2332}
 button.danger{background:var(--danger);color:#2a0d0d}
+.icon-btn{background:#0f1728;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:4px 8px;color:#e5e7eb;cursor:pointer}
 .pill{padding:6px 10px;border-radius:999px;background:#182034;color:var(--sub);font-size:12px;border:1px solid rgba(255,255,255,0.06)}
+.clickable{cursor:pointer}
 
 .container{max-width:1200px;margin:18px auto;padding:0 16px}
 .topbar{display:grid;gap:10px;grid-template-columns:1fr auto auto auto}
@@ -21,7 +23,10 @@ h2{font-size:18px;margin:0 0 8px}
 h3{font-size:15px;margin:12px 0 6px;color:var(--sub)}
 table{width:100%;border-collapse:collapse}
 th,td{padding:8px;border-bottom:1px dashed rgba(255,255,255,0.06);text-align:left;font-size:14px}
-th{color:#cbd5e1}
+th{color:#cbd5e1;user-select:none}
+th.sortable{cursor:pointer}
+th.sortable:after{content:" ⥮";opacity:.5}
+
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
 .tab{padding:8px 12px;border-radius:999px;background:#131c2c;border:1px solid rgba(255,255,255,0.08);cursor:pointer}
 .tab.active{background:var(--accent-2);color:#06132a;font-weight:700}
@@ -57,3 +62,17 @@ th{color:#cbd5e1}
 .bench-bar{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:10px}
 .draggable{cursor:grab}
 .draggable:active{cursor:grabbing}
+
+/* Stand kleurzones */
+.tr-promote{background:rgba(34,197,94,.12)}
+.tr-playoff{background:rgba(245,158,11,.12)}
+.tr-relegate{background:rgba(239,68,68,.12)}
+
+/* Popover */
+.popover.hidden{display:none}
+.popover{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:1000}
+.popover-card{width:min(520px,92vw);background:linear-gradient(180deg,#121a2b,#0f1728);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:12px 12px 14px}
+.popover-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.popover-body{font-size:14px;line-height:1.4}
+.popover-body .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed rgba(255,255,255,.06)}
+.popover-body .row strong{font-variant-numeric:tabular-nums}
