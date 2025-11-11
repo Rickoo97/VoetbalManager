@@ -698,6 +698,77 @@ function viewFixtures(){
   </div>`;
 }
 
+function viewCup(){
+  // Niet eligible? Toon uitleg.
+  if (!state.cup || !cupEligible()) {
+    return `<div class="card">
+      <h2>Beker</h2>
+      <div class="muted">Je doet mee aan de beker vanaf <strong>3e divisie</strong>. Promoveer om in te stromen.</div>
+    </div>`;
+  }
+
+  // Mapping ronde → label
+  const roundLabel = (r)=>{
+    if (r===32) return '1/16e finale';
+    if (r===16) return '1/8e finale';
+    if (r===8)  return 'Kwartfinale';
+    if (r===4)  return 'Halve finale';
+    if (r===2)  return 'Finale';
+    return r ? `${r}-teams` : '—';
+  };
+
+  const header = `<h2>Beker — ${roundLabel(state.cup.round)}</h2>`;
+
+  // Als beker nog niet actief (kan kort na degradatie/promotie)
+  if (!state.cup.active) {
+    return `<div class="card">
+      ${header}
+      <div class="muted">Geen actieve beker dit seizoen. De beker start automatisch bij de seizoensstart wanneer je divisie ≤ 3 is.</div>
+    </div>`;
+  }
+
+  const hasDrawn = Array.isArray(state.cup.fixtures) && state.cup.fixtures.length > 0;
+
+  const fxRows = hasDrawn
+    ? state.cup.fixtures.map(f=>{
+        const score = f.played && f.score ? `${f.score[0]} - ${f.score[1]}` : '—';
+        return `<tr><td>${f.homeName}</td><td>${f.awayName}</td><td>${score}</td></tr>`;
+      }).join('')
+    : `<tr><td colspan="3" class="muted">Nog niet geloot.</td></tr>`;
+
+  const history = (state.cup.history || []).slice(-16);
+  const historyRows = history.length
+    ? history.map(h=>{
+        const s = h.score ? `${h.score[0]} - ${h.score[1]}` : '—';
+        return `<tr><td>${h.homeName}</td><td>${h.awayName}</td><td>${s}</td></tr>`;
+      }).join('')
+    : `<tr><td colspan="3" class="muted">Nog geen gespeelde bekerwedstrijden.</td></tr>`;
+
+  const controls = `<div style="display:flex;gap:8px;margin:8px 0">
+    ${!hasDrawn ? `<button class="primary" onclick="app.cupDraw()">Loting</button>` : ``}
+    ${hasDrawn ? `<button class="primary" onclick="app.cupPlay()">Speel ronde</button>` : ``}
+  </div>`;
+
+  return `<div class="grid grid-2">
+    <div class="card">
+      ${header}
+      ${controls}
+      <table>
+        <thead><tr><th>Thuis</th><th>Uit</th><th>Score</th></tr></thead>
+        <tbody>${fxRows}</tbody>
+      </table>
+      <div class="muted" style="margin-top:6px">Bij gelijkspel: verlenging + penalty’s. Prijzengeld wordt automatisch uitgekeerd.</div>
+    </div>
+    <div class="card">
+      <h2>Historie</h2>
+      <table>
+        <thead><tr><th>Thuis</th><th>Uit</th><th>Score</th></tr></thead>
+        <tbody>${historyRows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
 function viewTransfers(){
   const rows=state.market.map(p=>`<tr><td class="pos">${p.pos}</td><td><strong>${p.name}</strong><div class="muted">${p.age} jr • Pot ${p.pot}</div></td><td>${p.ovr}</td><td class="money">${fmt(Math.round(p.value*0.85))}–${fmt(Math.round(p.value*1.45))}</td><td class="money">${fmt(p.wage)}/w</td><td><button class="primary" onclick="app.buy('${p.id}')">Koop</button></td></tr>`).join('');
   const offers= state.offers.length? state.offers.map(o=>`<tr><td><strong>${o.playerName}</strong></td><td>${o.club}</td><td class="money">${fmt(o.amount)}</td><td><button class="primary" onclick="app.accept('${o.id}')">Accepteer</button> <button onclick="app.reject('${o.id}')">Weiger</button></td></tr>`).join('') : `<tr><td colspan="4" class="muted">Geen biedingen momenteel.</td></tr>`;
