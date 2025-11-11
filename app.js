@@ -1,6 +1,6 @@
-// BlankBall Manager v0.9.1
+// BlankBall Manager v0.9.2
 (() => {
-console.log('v0.9.1 loaded');
+console.log('v0.9.2 loaded');
 
 const rand=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 const choice=a=>a[Math.floor(Math.random()*a.length)];
@@ -23,10 +23,17 @@ let state={
   ui:{squadSort:{key:'ovr',dir:'desc'}},
   sponsors:{active:null, offers:[]}, sponsorProgress:{wins:0,points:0,goals:0},
   cup:{eligible:false, active:false, round:0, teams:[], fixtures:[], history:[]},
-  finance:{last:{tickets:0,food:0,merch:0,sponsor:0,wages:0,prize:0,net:0,home:true}}
+  finance:{last:{tickets:0,food:0,merch:0,sponsor:0,wages:0,prize:0,net:0,home:true}},
+  trophies: [], // {type:'league'|'cup', name:string, season:number}
+  stats: {
+    seasons: 0, matches: 0, wins: 0, draws: 0, losses: 0,
+    gf: 0, ga: 0, prizeMoney: 0, revenues: 0, wagesPaid: 0,
+    leaguesWon: 0, cupsWon: 0,
+    bestFinishPerDiv: {1:null,2:null,3:null,4:null,5:null}
+  }
 };
 
-const saveKey='blankball-save-v091';
+const saveKey='blankball-save-v092';
 function save(){ localStorage.setItem(saveKey, JSON.stringify(state)); alert('Opgeslagen.'); }
 function load(){ const raw=localStorage.getItem(saveKey); if(raw){ try{state=JSON.parse(raw);}catch(e){ console.warn('Save corrupt -> nieuw'); } } }
 function reset(){ if(confirm('Weet je zeker?')){ localStorage.removeItem(saveKey); location.reload(); } }
@@ -138,13 +145,11 @@ function playMatch(hr,ar,homeIsYou,awayIsYou){
 function cupTieWithETP(hr,ar,homeIsYou,awayIsYou){
   let [h,a]=playMatch(hr,ar,homeIsYou,awayIsYou);
   if(h!==a) return {h,a,et:false,pens:false,homeWin:h>a};
-  // extra time (verlenging): kleinere intensiteit
   const etH = poisson(lambdaFromRating(hr,ar)*0.45);
   const etA = poisson(lambdaFromRating(ar,hr)*0.45);
   h+=etH; a+=etA;
   if(h!==a) return {h,a,et:true,pens:false,homeWin:h>a};
-  // penalty's met lichte ratingbias
-  const bias = (hr - ar) / 100; // -1..+1 ~
+  const bias = (hr - ar) / 100;
   const homeWin = Math.random() < (0.5 + clamp(bias, -0.1, 0.1));
   return {h,a,et:true,pens:true,homeWin};
 }
@@ -183,14 +188,33 @@ function playNextMatchday(){
       const subRes=makeAutoSubs(starters); if(subRes.count>0){ if(homeYou) hr+=subRes.boost; else ar+=subRes.boost; toast(`Automatische wissels: ${subRes.count} (+${subRes.boost.toFixed(1)})`); }
     }
     if(!homeYou) hr+=Math.random()*1.0; if(!awayYou) ar+=Math.random()*1.0;
-    const res=playMatch(hr,ar,homeYou,awayYou); f.score=res; f.played=true; addResult(f.home,res[0],f.away,res[1]);
-    if(homeYou||awayYou){ if(res[0]!==res[1]){ if((homeYou&&res[0]>res[1])||(awayYou&&res[1]>res[0])) state.sponsorProgress.wins++; } state.sponsorProgress.points+=(res[0]>res[1]?3:res[0]===res[1]?1:0); state.sponsorProgress.goals+=(homeYou?res[0]:res[1]);}
+    const res=playMatch(hr,ar,homeYou,awayYou);
+    f.score=res; f.played=true; 
+    addResult(f.home,res[0],f.away,res[1]);
+
+    // — stats voor jouw club —
+    if (homeYou || awayYou) {
+      const gf = homeYou ? res[0] : res[1];
+      const ga = homeYou ? res[1] : res[0];
+      state.stats.matches++;
+      state.stats.gf += gf; state.stats.ga += ga;
+      if (res[0] > res[1]) (homeYou ? state.stats.wins++ : state.stats.losses++);
+      else if (res[1] > res[0]) (awayYou ? state.stats.wins++ : state.stats.losses++);
+      else state.stats.draws++;
+
+      if (res[0] !== res[1]) {
+        if ((homeYou && res[0] > res[1]) || (awayYou && res[1] > res[0])) state.sponsorProgress.wins++;
+      }
+      state.sponsorProgress.points += (res[0] > res[1] ? 3 : res[0] === res[1] ? 1 : 0);
+      state.sponsorProgress.goals += gf;
+    }
   });
 
   // Finance: wages and revenue
   const weekly=state.squad.reduce((a,p)=>a+p.wage,0);
-  state.budget=Math.max(0,state.budget-weekly);
+  state.budget = Math.max(0, state.budget - weekly);
   let last={tickets:0,food:0,merch:0,sponsor:0,wages:weekly,prize:0,net:0,home:true};
+
   if(youHadMatch){
     const rev=breakdownMatchdayRevenue(youHome);
     state.budget+=rev.total;
@@ -199,6 +223,11 @@ function playNextMatchday(){
   }else{
     if(state.sponsors.active){ state.budget+=state.sponsors.active.baseWeekly; last.sponsor=state.sponsors.active.baseWeekly; }
   }
+
+  // cumulatieve stats
+  state.stats.wagesPaid += weekly;
+  state.stats.revenues  += (last.tickets + last.food + last.merch + last.sponsor);
+
   last.net = (last.tickets+last.food+last.merch+last.sponsor+last.prize) - last.wages;
   state.finance.last = last;
 
@@ -260,7 +289,7 @@ function breakdownMatchdayRevenue(home){
   return {tickets:home?tickets:Math.round(tickets*0.25), food:home?food:Math.round(food*0.25), merch:home?merch:Math.round(merch*0.25), total};
 }
 
-// Youth & Sponsors (ongewijzigd functioneel)
+// Youth & Sponsors
 function generateYouthPool(){
   const c=2+Math.ceil(state.youth/2), arr=[];
   for(let i=0;i<c;i++){ const pos=choice(POS); const p=genPlayer(pos); p.age=rand(15,18); p.ovr=clamp(rand(30,45)+state.youth,25,75); p.pot=clamp(p.ovr+rand(10,30)+state.youth,p.ovr+8,99); p.value=Math.round(valueFromOvr(p.ovr)*0.4); p.wage=Math.max(200,Math.round(p.wage*0.4)); arr.push(p); }
@@ -292,7 +321,7 @@ function sponsorProgressText(){
   return `Voortgang: ${have}/${target}`;
 }
 
-// Contracts & tactics (idem vorige)
+// Contracts
 function desiredWage(p){
   const base=Math.round(wageFromOvr(p.ovr)/52);
   const ageAdj=(p.age<=22?1.1:(p.age>=30?0.95:1.0));
@@ -396,7 +425,12 @@ function cupPlayRound(){
   if(nextTeams.length===1){
     const winner=nextTeams[0];
     const bonus=1_000_000;
-    if(winner.id==='you'){ state.budget+=bonus; alert(`Je wint de Beker! Bonus ${fmt(bonus)}.`); }
+    if(winner.id==='you'){
+      state.budget+=bonus; 
+      state.stats.cupsWon++;
+      state.trophies.push({type:'cup', name:'Beker', season: state.season});
+      alert(`Je wint de Beker! Bonus ${fmt(bonus)}.`);
+    }
     state.cup.active=false; state.cup.round=0; state.cup.fixtures=[];
   }else{
     state.cup.round = nextTeams.length;
@@ -412,29 +446,34 @@ function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.rand
 function ensureArrays(){ if(!Array.isArray(state.lineup)) state.lineup=Array(11).fill(null); if(!Array.isArray(state.bench)) state.bench=Array(6).fill(null); }
 function removeEverywhere(pid){ if(!pid) return; const li=state.lineup.indexOf(pid); if(li>-1) state.lineup[li]=null; const bi=state.bench.indexOf(pid); if(bi>-1) state.bench[bi]=null; }
 
-// === End season with new promotion/relegation rules ===
+// === End season with new promotion/relegation rules + stats/trophies ===
 function endSeason(){
   state.table.sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf);
   const pos=state.table.findIndex(t=>t.id==='you')+1;
   let msg=`Seizoen ${state.season} klaar. Positie: ${pos}/${state.table.length}.`;
   const prize=Math.round(800_000/state.division*(state.table.length-pos+1)*0.6); state.budget+=prize; msg+=`\nPrijzengeld: ${fmt(prize)}`;
+  state.stats.prizeMoney += prize;
+
+  // Beste klassering per divisie
+  const best = state.stats.bestFinishPerDiv[state.division];
+  state.stats.bestFinishPerDiv[state.division] = (best==null)? pos : Math.min(best, pos);
+
+  // Landstitel
+  if (pos === 1) {
+    state.stats.leaguesWon++;
+    state.trophies.push({type:'league', name: divisionName(), season: state.season});
+  }
 
   // Sponsor bonus
   if(state.sponsors.active){ const a=state.sponsors.active; const sp=state.sponsorProgress; const t=a.objective; let ok=false;
     if(t.type==='wins') ok=sp.wins>=t.target; if(t.type==='points') ok=sp.points>=t.target; if(t.type==='goals') ok=sp.goals>=t.target; if(t.type==='position') ok=pos<=t.target;
     if(ok){ state.budget+=a.bonus; msg+=`\nSponsorbonus: ${fmt(a.bonus)} (doel gehaald)`; } else msg+='\nSponsorbonus gemist.'; }
 
-  // Promotion/rel rules
   const lastIdx=state.table.length;
-  const origDivision = state.division;
-  let playoffTriggered=false;
 
   if(state.division===1){
-    // Kampioen Divisie (18 teams): 17-18 directe degradatie, 16 naar PO tegen Hoofdklasse PO-winnaar (buiten jouw sim als jij niet in D1)
     if(pos>=17){ state.division=2; msg+=`\nDegradatie → ${divisionName()}`; }
-    // pos 16: niets nu, tenzij jij daar eindigt -> markeer playoff placeholder
     if(pos===16){
-      // Als user eindigt 16e: één beslissingsduel vs Hoofdklasse PO-winnaar (simuleer rating ~ 66)
       const oppRating=66+rand(-3,3);
       const youRate=avgOvrEffective(state.squad);
       const tie=cupTieWithETP(youRate,oppRating,true,false);
@@ -442,14 +481,11 @@ function endSeason(){
       else{ state.division=2; msg+=`\nPlay-off verloren: degradatie → Hoofdklasse.`; }
     }
   } else if(state.division===2){
-    // Hoofdklasse: #1-2 promotie, #3–6 play-offs; winnaar speelt beslissingsduel vs Div1 #16 (simuleer)
     if(pos<=2){ state.division=1; msg+=`\nPROMOTIE → ${DIV_NAME[1]}`; }
     else if(pos>=3 && pos<=6){
-      playoffTriggered=true;
-      const seeds=[3,4,5,6]; const yourSeed=pos;
-      // Semis: (3 vs 6) & (4 vs 5), dan finale (single-leg), dan beslissingsduel vs Div1 #16
+      const yourSeed=pos;
       const youRate=avgOvrEffective(state.squad);
-      const oppRateSemi = 60 + (6 - (yourSeed===3?6: yourSeed===4?5: yourSeed===5?4:3)) + rand(-2,2); // simpele approx
+      const oppRateSemi = 60 + (6 - (yourSeed===3?6: yourSeed===4?5: yourSeed===5?4:3)) + rand(-2,2);
       let r1=cupTieWithETP(youRate, oppRateSemi, true, false);
       if(!r1.homeWin){ msg+=`\nPlay-offs: uit in halve finale.`; }
       else{
@@ -465,7 +501,6 @@ function endSeason(){
       }
     } else if(pos===lastIdx){ state.division=3; msg+=`\nDegradatie → ${DIV_NAME[3]}`; }
   } else {
-    // Overige divisies: behoud simpele regel (top2 promotie, laatste degradeert)
     if(pos<=2 && state.division>1){ state.division--; msg+=`\nPROMOTIE → ${divisionName()}`; }
     else if(pos===lastIdx && state.division<5){ state.division++; msg+=`\nDegradatie → ${divisionName()}`; }
   }
@@ -476,8 +511,9 @@ function endSeason(){
 
   alert(msg);
 
-  // New season seed
-  state.season++; state.sponsorProgress={wins:0,points:0,goals:0};
+  state.season++; 
+  state.stats.seasons++;
+  state.sponsorProgress={wins:0,points:0,goals:0};
   genSponsorOffers(); state.aiClubs=genAIClubs(); scheduleFixtures(); refreshMarket(); generateYouthPool(); state.offers=[];
   cupResetStart();
   render();
@@ -564,7 +600,6 @@ function viewSquad(){
 }
 
 function viewTactics(){
-  // (ongewijzigd t.o.v. 0.9)
   const style=state.tactics.style, form=state.tactics.formation;
   const styleChips=[['defensive','Zeer verdedigend'],['possession','Balbezit'],['attacking','Zeer aanvallend']].map(([k,l])=>`<span class="chip ${style===k?'active':''}" data-style="${k}">${l}</span>`).join('');
   const formChips=Object.keys(FORMATIONS).map(k=>`<span class="chip ${form===k?'active':''}" data-form="${k}">${k}</span>`).join('');
@@ -602,13 +637,13 @@ function viewFixtures(){
   // Stand met zones
   const sorted=state.table.slice().sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf);
   const total=sorted.length;
-  const rows=sorted.map((t,i)=>{
+  const rows = sorted.map((t,i)=>{
     let cls='';
     if(state.division===1){ if(i>=total-2) cls='tr-relegate'; else if(i===15) cls='tr-playoff'; }
     else if(state.division===2){ if(i<=1) cls='tr-promote'; else if(i>=2 && i<=5) cls='tr-playoff'; else if(i===total-1) cls='tr-relegate'; }
-    else { if(i<=1) cls='tr-promote'; if(i===total-1) cls+=' tr-relegate'; }
-    const you=t.id==='you';
-    return `<tr class="${cls} ${you?'":style="font-weight:700"':''}"><td>${i+1}</td><td>${t.name}</td><td>${t.pts}</td><td>${t.gf}</td><td>${t.ga}</td><td>${t.gd}</td></tr>`;
+    else { if(i<=1) cls='tr-promote'; if(i===total-1) cls = (cls?cls+' ':'') + 'tr-relegate'; }
+    const style = (t.id==='you') ? 'style="font-weight:700"' : '';
+    return `<tr class="${cls}" ${style}><td>${i+1}</td><td>${t.name}</td><td>${t.pts}</td><td>${t.gf}</td><td>${t.ga}</td><td>${t.gd}</td></tr>`;
   }).join('');
   return `<div class="grid grid-2">
     <div class="card"><h2>Programma</h2><table><thead><tr><th>MD</th><th>Thuis</th><th>Uit</th><th>Score</th></tr></thead><tbody>${fixtures}</tbody></table></div>
@@ -650,16 +685,53 @@ function viewSponsors(){
 
 function viewYouth(){ const rows=state.youthPool.map(p=>`<tr><td class="pos">${p.pos}</td><td><strong>${p.name}</strong><div class="muted">${p.age} jr • Pot ${p.pot}</div></td><td>${p.ovr}</td><td class="money">${fmt(p.wage)}/w</td><td><button class="primary" onclick="app.signYouth('${p.id}')">Teken</button></td></tr>`).join(''); return `<div class="card"><h2>Jeugdinstroom</h2><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Loon</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`; }
 
-function viewCup(){
-  if(!state.cup.eligible) return `<div class="card"><h2>Beker</h2><div class="muted">Je doet mee vanaf de <strong>3e divisie</strong>. Jouw club zit nu in ${divisionName()}.</div></div>`;
-  const r=state.cup.round||0, fx=state.cup.fixtures||[];
-  const youFixture=fx.find(f=>f.home==='you'||f.away==='you');
-  const histRows=state.cup.history.slice(-16).map(f=>`<tr><td>${f.homeName}</td><td>${f.awayName}</td><td>${f.score?`${f.score[0]} - ${f.score[1]}`:'–'}</td></tr>`).join('');
-  const fxRows=fx.length?fx.map(f=>`<tr ${((f.home==='you'||f.away==='you')?'style="font-weight:700"':'')}><td>${f.homeName}</td><td>${f.awayName}</td><td>${f.score?`${f.score[0]} - ${f.score[1]}`:'—'}</td></tr>`).join(''):`<tr><td class="muted" colspan="3">Nog geen loting.</td></tr>`;
-  const top=`<div class="card"><h2>Beker — ${r? (r===2?'Finale':r===4?'Halve finale':r===8?'Kwartfinale':r+'-finale'):'afgelopen'}</h2><div class="muted">${youFixture?`Volgende tegenstander: <strong>${youFixture.home==='you'?youFixture.awayName:youFixture.homeName}</strong>`:'—'}</div><div style="margin-top:8px"><button class="secondary" onclick="app.cupDraw()">Loting</button> <button class="primary" onclick="app.cupPlay()">Speel ronde</button></div></div>`;
-  const mid=`<div class="card"><h2>Huidige ronde</h2><table><thead><tr><th>Thuis</th><th>Uit</th><th>Score</th></tr></thead><tbody>${fxRows}</tbody></table></div>`;
-  const bot=`<div class="card"><h2>Recent gespeelde bekerduels</h2><table><thead><tr><th>Thuis</th><th>Uit</th><th>Score</th></tr></thead><tbody>${histRows||'<tr><td class="muted" colspan="3">Nog geen geschiedenis.</td></tr>'}</tbody></table></div>`;
-  return `<div class="grid grid-2">${top}${mid}${bot}</div>`;
+function viewClub(){
+  const s = state.stats || {};
+  const cap = stadiumCapacity(state.stadium);
+  const best = state.stats.bestFinishPerDiv;
+
+  const statGrid = `
+    <div class="grid grid-3">
+      <div class="card"><h2>Algemeen</h2>
+        <div class="muted">Seizoenen: <strong>${s.seasons}</strong></div>
+        <div class="muted">Divisie: <strong>${divisionName()}</strong></div>
+        <div class="muted">Stadion: <strong>lvl ${state.stadium}</strong> • cap <strong>${cap.toLocaleString('nl-NL')}</strong></div>
+      </div>
+      <div class="card"><h2>Resultaten (all-time)</h2>
+        <div class="muted">Gespeeld: <strong>${s.matches}</strong></div>
+        <div class="muted">W–G–V: <strong>${s.wins}</strong> – <strong>${s.draws}</strong> – <strong>${s.losses}</strong></div>
+        <div class="muted">Doelpunten: <strong>${s.gf}</strong> voor / <strong>${s.ga}</strong> tegen</div>
+      </div>
+      <div class="card"><h2>Financiën (all-time)</h2>
+        <div class="muted">Inkomsten: <strong>${fmt(s.revenues||0)}</strong></div>
+        <div class="muted">Lonen betaald: <strong>${fmt(s.wagesPaid||0)}</strong></div>
+        <div class="muted">Prijzengeld: <strong>${fmt(s.prizeMoney||0)}</strong></div>
+      </div>
+    </div>`;
+
+  const bestRows = Object.entries(best||{}).map(([d,v])=>`<tr><td>${DIV_NAME[d]||('Divisie '+d)}</td><td>${v?('#'+v):'—'}</td></tr>`).join('');
+  const bestCard = `<div class="card"><h2>Beste klasseringen</h2>
+    <table><thead><tr><th>Divisie</th><th>Beste plek</th></tr></thead><tbody>${bestRows}</tbody></table></div>`;
+
+  const cups = state.trophies.filter(t=>t.type==='cup').sort((a,b)=>a.season-b.season);
+  const leagues = state.trophies.filter(t=>t.type==='league').sort((a,b)=>a.season-b.season);
+
+  const trophyChip = t => `<span class="chip">${t.name} • S${t.season}</span>`;
+  const trophyCard = `<div class="card"><h2>Prijzenkast</h2>
+    <div class="muted">Landstitels: <strong>${state.stats.leaguesWon||0}</strong> • Bekers: <strong>${state.stats.cupsWon||0}</strong></div>
+    <h3 style="margin-top:8px">Landstitels</h3>
+    <div class="chips">${leagues.length? leagues.map(trophyChip).join('') : '<span class="muted">Nog geen titels.</span>'}</div>
+    <h3 style="margin-top:10px">Bekerwinsten</h3>
+    <div class="chips">${cups.length? cups.map(trophyChip).join('') : '<span class="muted">Nog geen bekers.</span>'}</div>
+  </div>`;
+
+  const actions = `<div class="card"><h2>Acties</h2>
+    <button onclick="app.refreshMarket()">Ververs markt</button>
+    <button class="secondary" onclick="app.generateYouthPool()">Nieuwe jeugd</button>
+    <button class="danger" onclick="app.reset()">Hard reset</button>
+  </div>`;
+
+  return `<div class="grid grid-2">${statGrid}${trophyCard}${bestCard}${actions}</div>`;
 }
 
 // === Render & UI wiring ===
@@ -684,7 +756,6 @@ function render(){
   if(active==='club') html=viewClub();
   view.innerHTML=html;
 
-  // Sorting headers (squad)
   if(active==='squad'){
     qsa('th.sortable').forEach(th=>th.addEventListener('click',()=>{
       const key=th.getAttribute('data-key');
@@ -713,7 +784,7 @@ function attach(){
   qsa('.tab').forEach(el=>el.addEventListener('click',()=>{ qsa('.tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); render(); }));
   byId('playBtn').addEventListener('click',playNextMatchday);
 
-  // === Smart simulate (#13) ===
+  // Slim simuleren
   byId('simulateBtn').addEventListener('click',()=>{
     const maxMd=Math.max(...state.fixtures.map(f=>f.md));
     const choiceStr = prompt(
@@ -732,16 +803,14 @@ function attach(){
     } else if(c===2){
       while(state.matchday<=maxMd){ playNextMatchday(); }
     } else {
-      // tot volgende beker-actie: stop zodra (a) je beker loting/wedstrijd klaarstaat of (b) beker klaar is
       while(true){
         const beforeActive = state.cup.active;
         const hadPending = state.cup.active && state.cup.fixtures.length>0 && state.cup.fixtures.some(f=>!f.played && (f.home==='you'||f.away==='you'));
-        if(hadPending) break; // al iets om te doen
+        if(hadPending) break;
         if(state.matchday>maxMd) break;
         playNextMatchday();
-        // na speeldag: check of nieuwe loting mogelijk is (we laten gebruiker handmatig loten)
         if(beforeActive && state.cup.active && state.cup.fixtures.length===0){ alert('Beker: je kunt nu loten of spelen via de Beker-tab.'); break; }
-        if(!state.cup.active) { /* beker afgelopen, ga door tot einde of breek */ break; }
+        if(!state.cup.active) { break; }
       }
     }
   });
@@ -750,7 +819,7 @@ function attach(){
   byId('resetBtn').addEventListener('click',reset);
   byId('renameBtn').addEventListener('click',()=>{ const n=prompt('Nieuwe clubnaam:', state.clubName); if(n&&n.trim()){ state.clubName=n.trim(); const me=state.table.find(t=>t.id==='you'); if(me) me.name=state.clubName; state.fixtures.forEach(f=>{ if(f.home==='you') f.homeName=state.clubName; if(f.away==='you') f.awayName=state.clubName; }); render(); } });
 
-  // Finance popover (#15)
+  // Finance popover
   byId('financeCard').addEventListener('click',()=>{
     const L=state.finance.last||{tickets:0,food:0,merch:0,sponsor:0,wages:0,prize:0,net:0,home:true};
     const body=byId('popoverBody');
@@ -772,6 +841,11 @@ function attach(){
 
 function init(){
   load();
+  // backfill voor oude saves
+  state.trophies = state.trophies || [];
+  state.stats = state.stats || {seasons:0,matches:0,wins:0,draws:0,losses:0,gf:0,ga:0,prizeMoney:0,revenues:0,wagesPaid:0,leaguesWon:0,cupsWon:0,bestFinishPerDiv:{1:null,2:null,3:null,4:null,5:null}};
+  if(!state.stats.bestFinishPerDiv) state.stats.bestFinishPerDiv={1:null,2:null,3:null,4:null,5:null};
+
   if(!state.squad || state.squad.length===0){
     state.clubName=prompt('Clubnaam?', 'SfeerShots FC') || 'Your FC';
     state.squad=genInitialSquad(); state.aiClubs=genAIClubs(); scheduleFixtures(); refreshMarket(); generateYouthPool(); genSponsorOffers();
@@ -808,7 +882,8 @@ window.app={
   acceptSponsor, cancelSponsor,
   negotiate:negotiateContract,
   cupDraw:()=>{ if(!state.cup.active||state.cup.round<=1){ alert('Beker nog niet actief of al klaar.'); return; } if(state.cup.fixtures.length){ alert('Ronde al geloot.'); return; } cupDraw(); render(); },
-  cupPlay:()=>{ if(!state.cup.active||!state.cup.fixtures.length){ alert('Geen wedstrijden om te spelen.'); return; } cupPlayRound(); }
+  cupPlay:()=>{ if(!state.cup.active||!state.cup.fixtures.length){ alert('Geen wedstrijden om te spelen.'); return; } cupPlayRound(); },
+  reset
 };
 
 init();
