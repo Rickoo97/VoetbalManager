@@ -1,6 +1,6 @@
-// BlankBall Manager v0.9.4 — Professional Era
+// BlankBall Manager v0.9.4.1 (split build)
 (() => {
-console.log('v0.9.4 loaded');
+console.log('v0.9.4.1 loaded (split)');
 
 const rand=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 const choice=a=>a[Math.floor(Math.random()*a.length)];
@@ -51,7 +51,42 @@ function reset(){ if(confirm('Weet je zeker?')){ localStorage.removeItem(saveKey
 
 const NAMES={first:['Jan','Piet','Klaas','Noah','Milan','Sem','Lucas','Daan','Levi','Luuk','Jayden','Finn','Mees','Jesse','Mats','Owen','Max','Jens','Thijs','Niek','Bram','Timo','Rayan','Sven','Koen','Siem','Lars','Ruben','Tom','Niels','Gijs','Joep','Damian','Mauro','Tijn'],
 last:['Jansen','de Vries','van Dijk','Bakker','Visser','Smit','Mulder','de Boer','de Groot','van den Berg','Kuipers','Hendriks','Dekker','Willems','Meijer','Vos','Peters','de Leeuw','Schouten','Bos','van Dam','Hoekstra','Verbeek','Willemse','van Ginkel','Koster','Jacobs','Maas','Post','Schipper']};
-const clubPool=['Waalwijk Town','Breda City','Ajax Amateurs','Zwolle Noord','FC Polder','Rijnsburg','Maasland','Kustboys','IJsselmeer SC','Brabant United','Veluwe Rangers','Rotterdam Rovers','NAC Old Boys','Tilburg Tigers','Gouda United','Lek Boys','Merwe Rangers'];
+const CLUB_NAMES_BY_DIVISION = {
+  1: [
+    'Ajax', 'PSV', 'Feyenoord', 'FC Twente', 'AZ',
+    'SC Heerenveen', 'NAC Breda', 'RKC Waalwijk',
+    'Eindhoven FC', 'Friese Leeuwen', 'Rotterdam Rangers',
+    'Utrecht United'
+  ],
+  2: [
+    'FC Den Bosch', 'Helmond Sport', 'VVV Venlo', 'IJssel Stars',
+    'Noordzee United', 'Randstad FC', 'Brabant Boys'
+  ],
+  3: [
+    'Kuststad FC', 'Polder United', 'Velden 04',
+    'Kanaalstreek FC', 'Betuwe Boys'
+  ],
+  4: [
+    'Biesbosch Boys', 'Veluwe Vikings', 'Delta Rangers',
+    'Stadionwijk 09', 'Gooi Galaxy'
+  ],
+  5: [
+    'Merwe Rangers', 'Goudstad FC', 'Lek Boys',
+    'IJsselmeer SC', 'Kustboys'
+  ]
+};
+
+function generateClubName(division, used){
+  const pool = CLUB_NAMES_BY_DIVISION[division] || CLUB_NAMES_BY_DIVISION[5];
+  const available = pool.filter(n => !used.has(n));
+
+  let pick;
+  if (available.length > 0) pick = choice(available);
+  else pick = "FC " + rid().slice(0,5);
+
+  used.add(pick);
+  return pick;
+}
 
 function rid(){ try{return [...crypto.getRandomValues(new Uint32Array(3))].map(x=>x.toString(16)).join('');}catch{return String(Math.random()).slice(2)} }
 function rndName(){return choice(NAMES.first)+' '+choice(NAMES.last);}
@@ -87,12 +122,21 @@ function genInitialSquad(){
 
 function leagueTeamCountForDivision(div){ return (div===1)?18:12; }
 function genAIClubs(){
-  const total=leagueTeamCountForDivision(state.division);
-  const arr=[];
-  for(let i=0;i<total-1;i++){
-    arr.push({id:rid(),name:clubPool[i%clubPool.length]+' '+roman(6-state.division),
-      rating:clamp(55+(5-state.division)*4+rand(-6,6),40,85),points:0,gf:0,ga:0,gd:0});
+  const count = 12;
+  const arr = [];
+  const used = new Set();
+
+  for (let i = 0; i < count - 1; i++) {
+    const name = generateClubName(state.division, used);
+
+    arr.push({
+      id: rid(),
+      name,
+      rating: clamp(55 + (5 - state.division) * 4 + rand(-6, 6), 40, 85),
+      points: 0, gf: 0, ga: 0, gd: 0
+    });
   }
+
   return arr;
 }
 function divisionName(){ return DIV_NAME[state.division]||`Divisie ${state.division}`; }
@@ -297,8 +341,33 @@ function genSponsorOffers(){
   if(!state.sponsors.shirt.offers.length) state.sponsors.shirt.offers=[genSponsorOffer('shirt'),genSponsorOffer('shirt'),genSponsorOffer('shirt')];
   if(!state.sponsors.main.offers.length)  state.sponsors.main.offers =[genSponsorOffer('main'), genSponsorOffer('main'), genSponsorOffer('main')];
 }
-function acceptSponsor(kind,id){ const box = state.sponsors[kind]; const o = box.offers.find(x=>x.id===id); if(!o) return; box.active=o; box.offers=box.offers.filter(x=>x.id!==id); toast(`${kind==='shirt'?'Shirt-':'Hoofd'}sponsor: ${o.brand} (${fmt(o.baseWeekly)}/wk • ${o.duration} seizoenen)`); }
-function cancelSponsor(kind){ const box=state.sponsors[kind]; if(box.active && confirm(`${kind==='shirt'?'Shirt-':'Hoofd'}sponsor opzeggen?`)) box.active=null; }
+function acceptSponsor(id){
+  const o = state.sponsors.offers.find(x => x.id === id);
+  if (!o) return;
+
+  // Active sponsor instellen
+  state.sponsors.active = o;
+
+  // Aanbieding verwijderen
+  state.sponsors.offers = state.sponsors.offers.filter(x => x.id !== id);
+
+  toast(`Sponsor: ${o.brand} (${fmt(o.baseWeekly)}/wk)`);
+
+  // 🔧 PATCH 0.9.4.1 — Direct update UI
+  render();
+}
+
+function cancelSponsor(){
+  if (!state.sponsors.active) return;
+
+  if (confirm('Sponsor opzeggen?')) {
+    state.sponsors.active = null;
+
+    // 🔧 PATCH 0.9.4.1 — Direct update UI
+    render();
+  }
+}
+
 function sponsorProgressTextFor(kind){
   const a=state.sponsors[kind].active; if(!a) return '—';
   const sp=state.sponsorProgress; const {type,target}=a.objective; let have=0;
