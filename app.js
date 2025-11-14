@@ -354,32 +354,37 @@ function genSponsorOffers(){
   if(!state.sponsors.shirt.offers.length) state.sponsors.shirt.offers=[genSponsorOffer('shirt'),genSponsorOffer('shirt'),genSponsorOffer('shirt')];
   if(!state.sponsors.main.offers.length)  state.sponsors.main.offers =[genSponsorOffer('main'), genSponsorOffer('main'), genSponsorOffer('main')];
 }
-function acceptSponsor(id){
-  const o = state.sponsors.offers.find(x => x.id === id);
+function acceptSponsor(kind, id){
+  const bucket = state.sponsors[kind];
+  if (!bucket) return;
+
+  const o = bucket.offers.find(x => x.id === id);
   if (!o) return;
 
-  // Active sponsor instellen
-  state.sponsors.active = o;
+  // Active sponsor instellen per soort
+  bucket.active = o;
 
-  // Aanbieding verwijderen
-  state.sponsors.offers = state.sponsors.offers.filter(x => x.id !== id);
+  // Aanbieding verwijderen uit diezelfde bucket
+  bucket.offers = bucket.offers.filter(x => x.id !== id);
 
-  toast(`Sponsor: ${o.brand} (${fmt(o.baseWeekly)}/wk)`);
+  toast(`Sponsor (${kind === 'shirt' ? 'shirtsponsor' : 'hoofdsponsor'}): ${o.brand} (${fmt(o.baseWeekly)}/wk)`);
 
-  // 🔧 PATCH 0.9.4.1 — Direct update UI
+  // Direct UI verversen
   render();
 }
 
-function cancelSponsor(){
-  if (!state.sponsors.active) return;
+function cancelSponsor(kind){
+  const bucket = state.sponsors[kind];
+  if (!bucket || !bucket.active) return;
 
-  if (confirm('Sponsor opzeggen?')) {
-    state.sponsors.active = null;
+  if (!confirm(`Sponsor (${kind === 'shirt' ? 'shirt' : 'hoofd'}) opzeggen?`)) return;
 
-    // 🔧 PATCH 0.9.4.1 — Direct update UI
-    render();
-  }
+  bucket.active = null;
+
+  // Direct UI verversen
+  render();
 }
+
 
 function sponsorProgressTextFor(kind){
   const a=state.sponsors[kind].active; if(!a) return '—';
