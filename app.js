@@ -55,24 +55,33 @@ const CLUB_NAMES_BY_DIVISION = {
   1: [
     'Ajax', 'PSV', 'Feyenoord', 'FC Twente', 'AZ',
     'SC Heerenveen', 'NAC Breda', 'RKC Waalwijk',
-    'Eindhoven FC', 'Friese Leeuwen', 'Rotterdam Rangers',
-    'Utrecht United'
+    'Utrecht United', 'Rotterdam Rangers', 'Eindhoven FC',
+    'Friese Leeuwen', 'Randstad FC', 'Zuidpark City',
+    'Noordzee United', 'IJssel Stars'
   ],
   2: [
-    'FC Den Bosch', 'Helmond Sport', 'VVV Venlo', 'IJssel Stars',
-    'Noordzee United', 'Randstad FC', 'Brabant Boys'
+    'FC Den Bosch', 'Helmond Sport', 'VVV Venlo',
+    'Brabant Boys', 'Kuststad FC', 'Polder United',
+    'Kanaalstreek FC', 'Betuwe Boys', 'Gouwestad FC',
+    'Rijnmond Rangers', 'Velden 04', 'Stadionwijk 09'
   ],
   3: [
-    'Kuststad FC', 'Polder United', 'Velden 04',
-    'Kanaalstreek FC', 'Betuwe Boys'
+    'Almere Rookies', 'Zuidpark Boys', 'Delta Rangers',
+    'IJsselmeer SC', 'Goudstad FC', 'Merwe Rangers',
+    'Kustboys', 'Biesbosch Boys', 'Veluwe Vikings',
+    'Kempen Kickers', 'Havenstad FC', 'Kanaalzicht 04'
   ],
   4: [
-    'Biesbosch Boys', 'Veluwe Vikings', 'Delta Rangers',
-    'Stadionwijk 09', 'Gooi Galaxy'
+    'Noordland FC', 'FC Deltawind', 'Stad & Land',
+    'Hoekse Boys', 'Rivierenland FC', 'Heuvelrug United',
+    'Zandstad 08', 'Fortuna Polderen', 'Vechtstreek FC',
+    'Graafschap Boys', 'Domstad Rangers', 'Meren United'
   ],
   5: [
-    'Merwe Rangers', 'Goudstad FC', 'Lek Boys',
-    'IJsselmeer SC', 'Kustboys'
+    'Altena FC', 'Lek Boys', 'IJsselmeer SC',
+    'Goudstad FC', 'Kustboys', 'Merwe Rangers',
+    'Biesbosch Boys', 'Polder United', 'Delta Rangers',
+    'Noordzee United', 'Brabant Boys', 'Almstad FC'
   ]
 };
 
@@ -81,8 +90,12 @@ function generateClubName(division, used){
   const available = pool.filter(n => !used.has(n));
 
   let pick;
-  if (available.length > 0) pick = choice(available);
-  else pick = "FC " + rid().slice(0,5);
+  if (available.length > 0) {
+    pick = choice(available);
+  } else {
+    // Nettere fallback als de pool ooit toch op is
+    pick = `Club ${used.size + 1}`;
+  }
 
   used.add(pick);
   return pick;
