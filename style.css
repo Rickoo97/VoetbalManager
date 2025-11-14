@@ -76,3 +76,60 @@ th.sortable:after{content:" ⥮";opacity:.5}
 .popover-body{font-size:14px;line-height:1.4}
 .popover-body .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed rgba(255,255,255,.06)}
 .popover-body .row strong{font-variant-numeric:tabular-nums}
+
+/* Tooltips */
+.tooltip{
+  position:relative;
+  cursor:help;
+}
+.tooltip::after{
+  content:attr(data-tooltip);
+  position:absolute;
+  left:50%;
+  bottom:125%;
+  transform:translateX(-50%);
+  background:#020617;
+  color:var(--sub);
+  padding:6px 8px;
+  border-radius:8px;
+  font-size:11px;
+  line-height:1.4;
+  max-width:220px;
+  white-space:normal;
+  border:1px solid rgba(148,163,184,0.4);
+  box-shadow:0 8px 20px rgba(0,0,0,0.5);
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .15s ease,transform .15s ease;
+  z-index:50;
+}
+.tooltip::before{
+  content:'';
+  position:absolute;
+  left:50%;
+  bottom:115%;
+  transform:translateX(-50%);
+  border-width:6px;
+  border-style:solid;
+  border-color:#020617 transparent transparent transparent;
+  opacity:0;
+  transition:opacity .15s ease;
+}
+.tooltip:hover::after,
+.tooltip:hover::before{
+  opacity:1;
+}
+
+/* Tabellen: zebra + hover + highlight eigen club */
+tbody tr:nth-child(odd){
+  background:rgba(15,23,42,0.35);
+}
+tbody tr:hover{
+  background:rgba(148,163,184,0.10);
+}
+tr.row-you{
+  background:linear-gradient(90deg,rgba(34,197,94,0.20),rgba(15,23,42,0.85));
+}
+tr.row-you:hover{
+  background:linear-gradient(90deg,rgba(34,197,94,0.28),rgba(15,23,42,0.95));
+}

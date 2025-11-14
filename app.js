@@ -1,6 +1,6 @@
-// BlankBall Manager v0.9.4.1 (split build)
+// BlankBall Manager v0.9.4.2 (split build)
 (() => {
-console.log('v0.9.4.1 loaded (split)');
+console.log('v0.9.4.2 loaded (split)');
 
 const rand=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 const choice=a=>a[Math.floor(Math.random()*a.length)];
@@ -917,11 +917,23 @@ function viewFixtures(){
   const total=sorted.length;
   const rows = sorted.map((t,i)=>{
     let cls='';
-    if(state.division===1){ if(i>=total-2) cls='tr-relegate'; else if(i===15) cls='tr-playoff'; }
-    else if(state.division===2){ if(i<=1) cls='tr-promote'; else if(i>=2 && i<=5) cls='tr-playoff'; else if(i===total-1) cls='tr-relegate'; }
-    else { if(i<=1) cls='tr-promote'; if(i===total-1) cls = (cls?cls+' ':'') + 'tr-relegate'; }
-    const style = (t.id==='you') ? 'style="font-weight:700"' : '';
-    return `<tr class="${cls}" ${style}><td>${i+1}</td><td>${t.name}</td><td>${t.pts}</td><td>${t.gf}</td><td>${t.ga}</td><td>${t.gd}</td></tr>`;
+    if(state.division===1){
+      if(i>=total-2) cls='tr-relegate';
+      else if(i===15) cls='tr-playoff';
+    } else if(state.division===2){
+      if(i<=1) cls='tr-promote';
+      else if(i>=2 && i<=5) cls='tr-playoff';
+      else if(i===total-1) cls='tr-relegate';
+    } else {
+      if(i<=1) cls='tr-promote';
+      if(i===total-1) cls = (cls?cls+' ':'') + 'tr-relegate';
+    }
+
+    const youClass = t.id==='you' ? 'row-you' : '';
+    const allCls = [cls,youClass].filter(Boolean).join(' ');
+    const nameCell = t.id==='you' ? `<strong>${t.name}</strong>` : t.name;
+
+    return `<tr class="${allCls}"><td>${i+1}</td><td>${nameCell}</td><td>${t.pts}</td><td>${t.gf}</td><td>${t.ga}</td><td>${t.gd}</td></tr>`;
   }).join('');
   return `<div class="grid grid-2">
     <div class="card"><h2>Programma</h2><table><thead><tr><th>MD</th><th>Thuis</th><th>Uit</th><th>Score</th></tr></thead><tbody>${fixtures}</tbody></table></div>
@@ -949,17 +961,44 @@ function viewTransfers(){
 }
 
 function viewFacilities(){
-  const block=(label,key,extra='')=>{ const lvl=state[key]; return `<div class="card"><h2>${label}</h2><div class="muted">Niveau: ${lvl} / 10</div><div class="progress" style="margin:8px 0 10px"><span style="width:${lvl*10}%"></span></div><div class="muted">Upgrade kost: <span class="money">${lvl<10?fmt(facCost(key,lvl+1)):'—'}</span></div>${extra}<button ${lvl>=10?'disabled':''} class="primary" onclick="app.upgrade('${key}')">Upgrade</button></div>` };
-  const stadInfo=`
+    const block=(label,key,extra='')=>{
+    const lvl=state[key];
+    const descMap={
+      training:'Training verbetert groei en individuele stats van spelers.',
+      youth:'Jeugd verbetert kwaliteit en aantal jeugdspelers per seizoen.',
+      scouting:'Scouting zorgt voor betere spelers op de markt en betere jeugdscouting.',
+      stadium:'Stadionniveau verhoogt capaciteit en daarmee je wedstrijdinkomsten.'
+    };
+    const hint = descMap[key]
+      ? `<div class="muted tooltip" data-tooltip="${descMap[key]}">ℹ Uitleg</div>`
+      : '';
+    return `<div class="card">
+      <h2>${label}</h2>
+      <div class="muted">Niveau: ${lvl} / 10</div>
+      <div class="progress" style="margin:8px 0 6px"><span style="width:${lvl*10}%"></span></div>
+      ${hint}
+      <div class="muted" style="margin-top:6px">Upgrade kost: <span class="money">${lvl<10?fmt(facCost(key,lvl+1)):'—'}</span></div>
+      ${extra}
+      <button ${lvl>=10?'disabled':''} class="primary" onclick="app.upgrade('${key}')">Upgrade</button>
+    </div>`;
+  };
+  // Stadion-kaart
+    const stadInfo=`
     <div class="muted" style="margin:8px 0">Capaciteit: <strong>${stadiumCapacity(state.stadium).toLocaleString('nl-NL')}</strong> (div-cap: ${DIV_CAP[state.division].toLocaleString('nl-NL')})</div>
-    <div class="muted" style="margin:8px 0">Huidige ticketprijs: <strong>${fmt(ticketPrice())}</strong> &nbsp; <input id="ticketSlider" type="range" min="8" max="40" step="1" value="${ticketPrice()}" style="width:180px;vertical-align:middle"> <span class="hint">(8–40)</span></div>
+    <div class="muted tooltip" data-tooltip="Hogere ticketprijzen geven meer inkomsten per fan, maar verlagen de vraag. Zoek de sweet spot." style="margin:8px 0">
+      Huidige ticketprijs: <strong>${fmt(ticketPrice())}</strong>
+      &nbsp;
+      <input id="ticketSlider" type="range" min="8" max="40" step="1" value="${ticketPrice()}" style="width:180px;vertical-align:middle">
+      <span class="hint">(8–40)</span>
+    </div>
     <div class="muted">Onderhoud (per speeldag): <strong>${fmt(maintenanceCost())}</strong></div>
   `;
   // Staff-kaart
   const staffRow=(label,role)=>{ const lvl=state.staff[role]; return `<tr><td>${label}</td><td>${lvl}/5</td><td class="money">${lvl<5?fmt(staffCost(role,lvl+1)):'—'}</td><td><button ${lvl>=5?'disabled':''} class="primary" onclick="app.upgradeStaff('${role}')">Upgrade</button></td></tr>`; };
   const staffCard=`<div class="card">
     <h2>Staf & Training</h2>
-    <div class="muted">Kies schema: 
+        <div class="muted tooltip" data-tooltip="Trainingsschema beïnvloedt groei, vermoeidheid en blessurekans van spelers.">
+      Kies schema: 
       <select id="trainingPlanSel" style="background:#0f1728;color:#e5e7eb;border:1px solid rgba(255,255,255,.1);padding:6px;border-radius:8px">
         ${['Herstel','Techniek','Tactiek','Intensief'].map(p=>`<option ${state.trainingPlan===p?'selected':''}>${p}</option>`).join('')}
       </select>
