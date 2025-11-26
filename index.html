@@ -3,115 +3,62 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>BlankBall Manager</title>
+  <title>Online Voetbal Manager</title>
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
-<header>
-  <div class="brand">
-    <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M21 3H3v18h18V3Zm-2 2v3l-6 3-6-3V5h12ZM5 19v-8l6 3 6-3v8H5Z"/></svg>
-    <span>BlankBall Manager</span>
-    <span class="badge">v0.9.4.3</span>
-  </div>
-  <div class="right-actions">
-    <span class="pill" id="clubLabel">Club</span>
-    <button class="secondary" id="renameBtn">Hernoem club</button>
-    <button id="saveBtn">Opslaan</button>
-    <button class="danger" id="resetBtn">Reset</button>
-  </div>
-</header>
 
-<div class="container">
-  <div class="topbar card">
-    <div>
-      <h1 id="title"></h1>
-      <div class="muted" id="subtitle"></div>
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo-icon">⚽</div>
+      <div class="brand-text">Online VM <span class="badge">v3.3</span></div>
     </div>
-    <div class="card bar">
-      <div>
-        <div class="muted tooltip"
-             data-tooltip="Huidige clubkas. Verhoogt met inkomsten (ticketing, sponsoren, tv) en daalt door lonen, transfers en onderhoud.">
-          Budget
-        </div>
-        <div class="money" id="budget">€ 0</div>
-      </div>
-      <div>
-        <div class="muted tooltip"
-             data-tooltip="Totale loonlast per speeldag. Wordt iedere speeldag automatisch van je budget afgetrokken.">
-          Lonen / week
-        </div>
-        <div class="money" id="wages">€ 0</div>
-      </div>
-      <div>
-        <div class="muted tooltip"
-             data-tooltip="Overzicht van niveau: Training • Jeugd • Scouting • Stadion.">
-          Faciliteiten
-        </div>
-        <div id="facSummary">T1 • Y1 • S1 • ST1</div>
-      </div>
-    </div>
-    <div class="card bar">
-      <div>
-        <div class="muted tooltip"
-             data-tooltip="Bepaalt sterkte van tegenstanders, tv-inkomsten en niveau van sponsordeals.">
-          Divisie
-        </div>
-        <div id="division"></div>
-      </div>
-      <div>
-        <div class="muted tooltip"
-             data-tooltip="Elke speeldag is één competitiewedstrijd. Na de laatste speeldag eindigt het seizoen.">
-          Speeldag
-        </div>
-        <div id="matchday">1</div>
-      </div>
-      <div>
-        <div class="muted tooltip"
-             data-tooltip="Na elk seizoen worden spelers ouder, contracten lopen af en kun je promoveren of degraderen.">
-          Seizoen
-        </div>
-        <div id="seasonYear">1</div>
-      </div>
-    </div>
-    <div class="right-actions">
-      <button class="primary" id="playBtn">Speel speeldag</button>
-      <button class="secondary" id="simulateBtn">Simuleer seizoen</button>
-    </div>
-  </div>
 
-  <!-- Finance quick card -->
-  <div id="financeCard" class="card finance-card">
-    <h2>Laatste wedstrijd — financiën</h2>
-    <div class="muted">Klik om een overzicht te zien van inkomsten en uitgaven van je laatste speeldag.</div>
-  </div>
+    <nav id="main-nav" class="nav-links"></nav>
 
-  <div class="tabs">
-    <div class="tab active" data-tab="squad">Selectie</div>
-    <div class="tab" data-tab="tactics">Opstelling</div>
-    <div class="tab" data-tab="fixtures">Programma</div>
-    <div class="tab" data-tab="cup">Beker</div>
-    <div class="tab" data-tab="transfers">Transfers</div>
-    <div class="tab" data-tab="facilities">Faciliteiten</div>
-    <div class="tab" data-tab="sponsors">Sponsors</div>
-    <div class="tab" data-tab="youth">Jeugd</div>
-    <div class="tab" data-tab="club">Club</div>
-    <div class="tab" data-tab="movements">Wijzigingen</div>
-  </div>
+    <div class="sidebar-footer">
+      <button id="btn-theme-toggle" class="btn-theme">🌙 Donker</button>
+      <div class="version-muted">By Rick & AI</div>
+    </div>
+  </aside>
 
-  <div id="view"></div>
-  <div class="footer muted">
-    Formaties • Beker met loting (vanaf 3e divisie) • Contractonderhandelingen • Promotie/degradatie overzicht.
-  </div>
+  <main class="main-content">
+    
+    <header class="top-header" id="topbar-stats">
+      <div class="stats-group">
+        <div class="stat-item">
+          <span class="label">Club</span>
+          <strong id="club-name">...</strong>
+        </div>
+        <div class="stat-item">
+          <span class="label">Divisie</span>
+          <strong id="club-division">...</strong>
+        </div>
+        <div class="stat-item">
+          <span class="label">Budget</span>
+          <strong id="budget" class="money">...</strong>
+        </div>
+        <div class="stat-item">
+          <span class="label">Week</span>
+          <strong id="matchday">1</strong>
+        </div>
+      </div>
+
+      <div class="actions-group">
+        <button class="secondary" id="btn-save">Opslaan</button>
+        <button class="danger" id="btn-reset">Reset</button>
+        <button class="primary action-btn" id="btn-continue">Volgende Speelronde</button>
+      </div>
+    </header>
+
+    <div id="view" class="view-container">
+      </div>
+
+  </main>
 </div>
 
-<!-- Finance popover -->
-<div id="popover" class="popover hidden">
-  <div class="popover-inner card">
-    <button id="popoverClose" class="popover-close">×</button>
-    <h2>Laatste wedstrijd — financiën</h2>
-    <div id="popoverBody"></div>
-  </div>
-</div>
+<div id="toast" class="toast"></div>
 
 <script defer src="app.js"></script>
 </body>

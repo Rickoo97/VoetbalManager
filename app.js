@@ -1,1592 +1,627 @@
-// BlankBall Manager v0.9.4.3 (Performance Optimized Build)
-(() => {
-console.log('v0.9.4.3 Performance Boost loaded');
-
-const roman=n=>{
-  const r=['','I','II','III','IV','V','VI','VII','VIII','IX','X'];
-  return r[n]||n;
-};
-
-const rand=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
-const choice=a=>a[Math.floor(Math.random()*a.length)];
-const rid=()=>(Math.random().toString(36).slice(2,10));
-
-const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
-const sum=a=>a.reduce((x,y)=>x+y,0);
-
-const fmt=n=>{
-  if(n===0) return '€ 0';
-  let s=n<0?'-':'';
-  n=Math.abs(n);
-  return `${s}€ ${n.toLocaleString('nl-NL')}`;
-};
-
-const NAMES=["Jan","Piet","Klaas","Mark","Tim","Luuk","Niels","Rick","Kevin","Sam","Rico","Dennis","Tom","Gijs","Leroy","Koen","Leon","Daan","Teun","Yannick"];
-
-// --- CLUB NAME GENERATOR (v0.9.4.3) ---
-const CLUB_NAMES_BY_DIVISION = {
-  1: [
-    'Ajax', 'PSV', 'Feyenoord', 'FC Twente', 'AZ',
-    'SC Heerenveen', 'NAC Breda', 'RKC Waalwijk',
-    'Utrecht United', 'Rotterdam Rangers', 'Eindhoven FC',
-    'Friese Leeuwen', 'Randstad FC', 'Zuidpark City',
-    'Noordzee United', 'IJssel Stars'
-  ],
-  2: [
-    'FC Den Bosch', 'Helmond Sport', 'VVV Venlo',
-    'Brabant Boys', 'Kuststad FC', 'Polder United',
-    'Kanaalstreek FC', 'Betuwe Boys', 'Gouwestad FC',
-    'Rijnmond Rangers', 'Velden 04', 'Stadionwijk 09'
-  ],
-  3: [
-    'Almere Rookies', 'Zuidpark Boys', 'Delta Rangers',
-    'IJsselmeer SC', 'Goudstad FC', 'Merwe Rangers',
-    'Kustboys', 'Biesbosch Boys', 'Veluwe Vikings',
-    'Kempen Kickers', 'Havenstad FC', 'Kanaalzicht 04'
-  ],
-  4: [
-    'Noordland FC', 'FC Deltawind', 'Stad & Land',
-    'Hoekse Boys', 'Rivierenland FC', 'Heuvelrug United',
-    'Zandstad 08', 'Fortuna Polderen', 'Vechtstreek FC',
-    'Graafschap Boys', 'Domstad Rangers', 'Meren United'
-  ],
-  5: [
-    'Altena FC', 'Lek Boys', 'IJsselmeer SC',
-    'Goudstad FC', 'Kustboys', 'Merwe Rangers',
-    'Biesbosch Boys', 'Polder United', 'Delta Rangers',
-    'Noordzee United', 'Brabant Boys', 'Almstad FC'
-  ]
-};
-
-function generateClubName(division, used){
-  const pool = CLUB_NAMES_BY_DIVISION[division] || CLUB_NAMES_BY_DIVISION[5];
-  const available = pool.filter(n => !used.has(n));
-  let pick;
-
-  if (available.length > 0) pick = choice(available);
-  else pick = `Club ${used.size + 1}`;
-
-  used.add(pick);
-  return pick;
-}
-
-// --- STATE ---
-let state = {
-  version: "0.9.4.3",
-  division: 5,
-  season: 1,
-  matchday: 1,
-  you: null,
-  table: [],
-  fixtures: [],
-  history: [],
-  seasonChanges: {},
-  scouting: 1,
-  youth: 1,
-  stadium: 1,
-  training: 1,
-  staffPlan: "balanced",
-  sponsors: {
-    shirt: { active: null, offers: [] },
-    main: { active: null, offers: [] }
-  },
-  lastMatch: null,
-};
-// --- FIXTURE / SCHEDULE GENERATOR (v0.9.4.3 Optimized) ---
-
-function genAIClubs(){
-  const count = 12;
-  const arr = [];
-  const used = new Set();
-  for(let i=0;i<count-1;i++){
-    const name = generateClubName(state.division, used);
-    arr.push({
-      id: rid(),
-      name,
-      pts: 0, gf:0, ga:0, gd:0
-    });
-  }
-  return arr;
-}
-
-function initYourClub(){
-  return {
-    id: "you",
-    name: "Altena FC",
-    pts: 0, gf:0, ga:0, gd:0
-  };
-}
-
-// Faster fixture generator
-function generateFixturesFast(){
-  const clubs=[...state.table];
-  const n=clubs.length;
-  const rounds=n-1;
-  const half=n/2;
-
-  let a=clubs.slice(0,half);
-  let b=clubs.slice(half).reverse();
-
-  const schedule=[];
-  for(let r=0;r<rounds;r++){
-    const week=[];
-    for(let i=0;i<half;i++){
-      if(a[i].id==="you"||b[i].id==="you")
-        week.push([a[i],b[i]]);
-      else
-        week.push([a[i],b[i]]);
-    }
-    schedule.push(week);
-
-    // rotate
-    const fixed=a.shift();
-    const last=b.pop();
-    b.unshift(a.pop());
-    a.unshift(fixed);
-    b.push(last);
-  }
-  return schedule;
-}
-
-// --- MATCH ENGINE (v0.9.4.3 optimized) ---
-// Much faster simulation, fewer heavy ops
-
-function simMatch(a,b){
-  const baseA = 50 + rand(-8,8) + state.training;
-  const baseB = 50 + rand(-8,8);
-
-  const atkA = baseA + rand(0,4);
-  const atkB = baseB + rand(0,4);
-
-  let gA = clamp(Math.floor((atkA - baseB)/10) + rand(0,2),0,6);
-  let gB = clamp(Math.floor((atkB - baseA)/10) + rand(0,2),0,6);
-
-  if(Math.random()<0.10) gA++;
-  if(Math.random()<0.10) gB++;
-
-  return [gA,gB];
-}
-
-// apply results to league table
-function applyMatchResult(tA, tB, gA, gB){
-  tA.gf+=gA;
-  tA.ga+=gB;
-  tB.gf+=gB;
-  tB.ga+=gA;
-  tA.gd=tA.gf-tA.ga;
-  tB.gd=tB.gf-tB.ga;
-
-  if(gA>gB) tA.pts+=3;
-  else if(gB>gA) tB.pts+=3;
-  else { tA.pts++; tB.pts++; }
-}
-
-function playNextMatchday(){
-  if(state.matchday > state.fixtures.length){
-    return endSeason();
-  }
-
-  const week = state.fixtures[state.matchday-1];
-  for(const match of week){
-    const [a,b]=match;
-    const [gA,gB]=simMatch(a,b);
-    applyMatchResult(a,b,gA,gB);
-
-    // store last match if "you" played
-    if(a.id==="you"||b.id==="you"){
-      state.lastMatch={
-        opp: (a.id==="you"? b.name: a.name),
-        gf: gA,
-        ga: gB,
-        home: a.id==="you"
-      };
-    }
-  }
-
-  state.matchday++;
-  render();
-}
-
-// --- SPONSORS (v0.9.4.3 Optimized & Fixed) ---
-
-function genSponsorOffers(){
-  const base = 200 + state.division*40 + rand(0,120);
-
-  const mkOffer = ()=>({
-    id:rid(),
-    brand: choice(["ING","Rabobank","Jumbo","ASML","Univé","Heineken","Bol.com","Coolblue"]),
-    baseWeekly: base + rand(-50,50),
-    duration: 1 + rand(0,2)
-  });
-
-  const s = state.sponsors;
-  s.shirt.offers = [mkOffer(), mkOffer()];
-  s.main.offers  = [mkOffer()];
-}
-
-function acceptSponsor(kind,id){
-  const bucket = state.sponsors[kind];
-  if(!bucket) return;
-  const o = bucket.offers.find(x => x.id===id);
-  if(!o) return;
-
-  bucket.active = o;
-  bucket.offers = bucket.offers.filter(x=>x.id!==id);
-
-  toast(`Sponsor (${kind}): ${o.brand} (${fmt(o.baseWeekly)}/wk)`);
-
-  render();
-}
-
-function cancelSponsor(kind){
-  const bucket = state.sponsors[kind];
-  if(!bucket || !bucket.active) return;
-  if(!confirm("Sponsor opzeggen?")) return;
-  bucket.active=null;
-  render();
-}
-
-function sponsorIncome(){
-  let amt=0;
-  const s=state.sponsors;
-  if(s.shirt.active) amt+=s.shirt.active.baseWeekly;
-  if(s.main.active) amt+=s.main.active.baseWeekly;
-  return amt;
-}
-// --- FINANCE ENGINE (v0.9.4.3 Optimized) ---
-
-function maintenanceCost(){
-  return 2000 + state.stadium * 700;
-}
-
-function ticketIncome(){
-  const base = 12 + (6 - state.division)*2;
-  const price = state.ticketPriceCustom ?? base;
-  const cap = 800 + state.stadium * 600;
-
-  const demand = Math.max(120, 400 + rand(-80,110) + state.training*20);
-  const att = Math.min(cap, demand);
-
-  return {
-    attendance: att,
-    tickets: att * price,
-    food: Math.round(att * 3.2),
-    merch: Math.round(att * 1.2)
-  };
-}
-
-function financeTick(matchWasHome){
-  const rev = matchWasHome ? ticketIncome() : {attendance:0,tickets:0,food:0,merch:0};
-  const wages = state.squad.reduce((a,p)=>a+p.wage,0);
-  const sponsor = sponsorIncome();
-  const cost = maintenanceCost();
-
-  const tv = (state.division<=3 && Math.random()<0.25)? (60000 + rand(-5000,8000)) : 0;
-
-  const net = (rev.tickets + rev.food + rev.merch + sponsor + tv) - wages - cost;
-
-  state.budget += net;
-
-  state.finance.last = {
-    attendance: rev.attendance,
-    tickets: rev.tickets,
-    food: rev.food,
-    merch: rev.merch,
-    sponsor,
-    tv,
-    wages,
-    maintenance: cost,
-    net
-  };
-}
-
-
-// --- TRAINING + DEVELOPMENT (v0.9.4.3) ---
-// lighter & faster loop
-
-function trainPlayers(){
-  const f = 0.10 + state.training*0.03;
-  for(const p of state.squad){
-    if(p.age <= 32 && p.ovr < p.pot && Math.random() < f){
-      p.ovr++;
-      p.value = Math.round(p.value * 1.05);
-      p.passing += rand(0,1);
-      p.shooting += rand(0,1);
-      p.defense += rand(0,1);
-      p.pace += rand(0,1);
-    }
-  }
-}
-
-
-// --- YOUTH INTAKE (v0.9.4.3) ---
-
-function generateYouthPool(){
-  const arr=[];
-  const count = 2 + Math.floor(state.youth/3);
-  for(let i=0;i<count;i++){
-    const pos = choice(POS);
-    const ovr = 30 + state.youth*2 + rand(-3,5);
-    const pot = ovr + 10 + rand(0,20);
-    arr.push({
-      id:rid(),
-      name: rndName(),
-      age: 15 + rand(0,2),
-      pos,
-      ovr,
-      pot,
-      wage: 180 + rand(0,80),
-      value: 15000 + rand(0,20000)
-    });
-  }
-  state.youthPool = arr;
-}
-
-function signYouth(id){
-  const p = state.youthPool.find(x=>x.id===id);
-  if(!p) return;
-  if(state.squad.length>=32) return alert("Selectie is vol (max 32)");
-  state.squad.push(p);
-  state.youthPool = state.youthPool.filter(x=>x.id!==id);
-  render();
-}
-
-
-// --- TRANSFERS (v0.9.4.3 faster) ---
-
-function refreshMarket(){
-  const arr=[];
-  for(let i=0;i<18;i++){
-    const pos = choice(POS);
-    const ovr = 40 + rand(0,20) + state.scouting;
-    const pot = ovr + rand(3,25);
-    arr.push({
-      id:rid(),
-      name:rndName(),
-      age:rand(18,33),
-      pos,
-      ovr,
-      pot,
-      wage:Math.round((ovr*ovr)/7 + rand(60,220)),
-      value:Math.round((ovr*ovr)*40 + rand(2000,8000))
-    });
-  }
-  state.market = arr;
-}
-
-function buyPlayer(id){
-  const p = state.market.find(x=>x.id===id);
-  if(!p) return;
-  const fee = p.value;
-  if(state.budget < fee) return alert("Onvoldoende budget!");
-  state.budget -= fee;
-  state.squad.push(p);
-  state.market = state.market.filter(x=>x.id!==id);
-  render();
-}
-
-function releasePlayer(id){
-  const ix = state.squad.findIndex(p=>p.id===id);
-  if(ix<0) return;
-  if(!confirm("Contract ontbinden?")) return;
-  state.squad.splice(ix,1);
-  render();
-}
-
-
-// --- CONTRACTEN (v0.9.4.3 cleaned) ---
-
-function negotiateContract(id){
-  const p = state.squad.find(x=>x.id===id);
-  if(!p) return;
-
-  const ask = Math.round((p.ovr*p.ovr)/6 + rand(50,140));
-
-  let newW = prompt(`${p.name} wil ongeveer ${fmt(ask)}/wk\nVoer loon in:`, ask);
-  if(!newW) return;
-  newW = parseInt(newW);
-
-  if(newW < ask*0.85){
-    alert(`${p.name} weigert.`);
-    return;
-  }
-
-  const bonus = newW*2;
-  if(state.budget < bonus){
-    alert("Geen budget voor tekenbonus.");
-    return;
-  }
-
-  state.budget -= bonus;
-  p.wage = newW;
-
-  toast(`Nieuw contract: ${p.name} (${fmt(newW)}/wk)`);
-  render();
-}
-
-
-// --- LINEUP MANAGER (v0.9.4.3 optimized) ---
-
-function ensureArrays(){
-  if(!Array.isArray(state.lineup)) state.lineup = Array(11).fill(null);
-  if(!Array.isArray(state.bench)) state.bench = Array(6).fill(null);
-}
-
-function removeEverywhere(pid){
-  if(!pid) return;
-  const L = state.lineup.indexOf(pid);
-  if(L>-1) state.lineup[L]=null;
-  const B = state.bench.indexOf(pid);
-  if(B>-1) state.bench[B]=null;
-}
-
-function pickXI(){
-  const pool = state.squad.filter(p=>!p.injured && !p.suspended)
-    .slice().sort((a,b)=>b.ovr-a.ovr);
-  return pool.slice(0,11).map(p=>p.id);
-}
-
-function autoXI(){
-  ensureArrays();
-  const xi = pickXI();
-  const used = new Set(xi);
-  state.lineup = xi;
-  const bench = state.squad.filter(p=>!used.has(p.id))
-    .slice().sort((a,b)=>b.ovr-a.ovr).slice(0,6).map(p=>p.id);
-  state.bench = bench;
-  render();
-}
-// --- MANUAL LINEUP ACTIONS (v0.9.4.3) ---
-
-function toggleXI(id){
-  ensureArrays();
-  const p = state.squad.find(x=>x.id===id);
-  if(!p || p.injured || p.suspended) return;
-
-  const idx = state.lineup.indexOf(id);
-  if(idx > -1){
-    state.lineup[idx] = null;
-  } else {
-    if(state.lineup.filter(Boolean).length >= 11)
-      return toast("XI is vol (11 spelers)");
-    removeEverywhere(id);
-    const free = state.lineup.findIndex(x=>!x);
-    state.lineup[free] = id;
-  }
-  render();
-}
-
-function quickAdd(id){
-  ensureArrays();
-  const p = state.squad.find(x=>x.id===id);
-  if(!p || p.injured || p.suspended) return;
-
-  const xiCount = state.lineup.filter(Boolean).length;
-  const benchCount = state.bench.filter(Boolean).length;
-
-  if(xiCount < 11){
-    removeEverywhere(id);
-    const slot = state.lineup.findIndex(x=>!x);
-    state.lineup[slot] = id;
-  } else if(benchCount < 6){
-    removeEverywhere(id);
-    const slot = state.bench.findIndex(x=>!x);
-    state.bench[slot] = id;
-  } else {
-    toast("XI en bank zijn vol.");
-  }
-  render();
-}
-
-function clearXI(){
-  ensureArrays();
-  state.lineup = Array(11).fill(null);
-  render();
-}
-
-function clearBench(){
-  ensureArrays();
-  state.bench = Array(6).fill(null);
-  render();
-}
-
-function dropToXI(e, idx){
-  e.preventDefault();
-  ensureArrays();
-  const d = state._drag || {};
-  const p = state.squad.find(x=>x.id===d.id);
-  if(!p || p.injured || p.suspended) return;
-  removeEverywhere(p.id);
-  state.lineup[idx] = p.id;
-  render();
-}
-
-function dropToBench(e, idx){
-  e.preventDefault();
-  ensureArrays();
-  const d = state._drag || {};
-  const p = state.squad.find(x=>x.id===d.id);
-  if(!p || p.injured || p.suspended) return;
-  removeEverywhere(p.id);
-  state.bench[idx] = p.id;
-  render();
-}
-
-function dragStart(e, from, id, slot){
-  state._drag = { from, id, slot };
-}
-
-function saveXI(){
-  toast("Opstelling & bank opgeslagen.");
-}
-
-
-// --- CUP SYSTEM (v0.9.4.3 simplified & optimized) ---
-
-function cupEligible(){
-  return state.division <= 3;
-}
-
-function resetCup(){
-  if(!cupEligible()){
-    state.cup = {
-      eligible:false,
-      active:false,
-      round:0,
-      fixtures:[],
-      history:[]
-    };
-    return;
-  }
-
-  state.cup = {
-    eligible:true,
-    active:true,
-    round:32,
-    fixtures:[],
-    history:[]
-  };
-  genCupRound();
-}
-
-function genCupRound(){
-  const size = state.cup.round;
-  const fx = [];
-
-  for(let i=0; i<size/2; i++){
-    const home = rndName() + " FC";
-    const away = rndName() + " United";
-    fx.push({
-      id: rid(),
-      home,
-      away,
-      score: null,
-      played:false
-    });
-  }
-
-  state.cup.fixtures = fx;
-}
-
-function playCupRound(){
-  if(!state.cup.active) return;
-
-  for(const f of state.cup.fixtures){
-    const gA = rand(0,4);
-    const gB = rand(0,4);
-    f.score=[gA,gB];
-    f.played=true;
-  }
-
-  state.cup.history.push(...state.cup.fixtures);
-
-  if(state.cup.round > 2){
-    state.cup.round /= 2;
-    genCupRound();
-  } else {
-    // winner
-    state.cup.active=false;
-    toast("Beker is afgerond.");
-  }
-
-  render();
-}
-
-
-// --- HISTORY / TROPHY SYSTEM (v0.9.4.3 improved) ---
-
-function addSeasonToHistory(pos){
-  const gf = state.tableYour.gf;
-  const ga = state.tableYour.ga;
-  const wins = state.tableYour.wins ?? "-";
-  const draws = state.tableYour.draws ?? "-";
-  const losses = state.tableYour.losses ?? "-";
-
-  // Find topscorer
-  let top = state.squad.slice().sort((a,b)=>b.seasonGoals-a.seasonGoals)[0];
-  if(!top) top = { name:"—", seasonGoals:0 };
-
-  state.history.seasons.push({
-    season: state.season,
-    division: divisionName(),
-    pos,
-    gf,
-    ga,
-    record: `${wins}-${draws}-${losses}`,
-    topScorer: { name: top.name, goals: top.seasonGoals },
-    budgetEnd: state.budget
-  });
-}
-
-function exportHistory(){
-  const data = JSON.stringify(state.history, null, 2);
-  const blob = new Blob([data], {type:"application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href=url;
-  a.download="voetbalmanager_history.json";
-  a.click();
-  setTimeout(()=>URL.revokeObjectURL(url),1000);
-}
-
-
-// --- PROMOTIE / DEGRADATIE OVERZICHT (v0.9.4.3 NEW TAB!!) ---
-
-function scanDivisionResults(){
-  const table = [...state.table].sort((a,b)=>b.pts-a.pts || b.gd-a.gd);
-  const promote = table.slice(0,2).map(t=>t.name);
-  const relegate = [ table[table.length-1].name ];
-
-  return { promote, relegate };
-}
-
-function viewMovementOverview(){
-  const { promote, relegate } = scanDivisionResults();
-
-  const promRows = promote.map(n=>`<div class="tag" style="background:#0f0a;color:#76ff76">↑ ${n}</div>`).join("");
-  const relRows = relegate.map(n=>`<div class="tag" style="background:#200;color:#ff7474">↓ ${n}</div>`).join("");
-
-  return `
-    <div class="card">
-      <h2>Promoties</h2>
-      ${promRows || '<div class="muted">Geen data</div>'}
-    </div>
-    <div class="card">
-      <h2>Degradaties</h2>
-      ${relRows || '<div class="muted">Geen data</div>'}
-    </div>
-  `;
-}
-// --- END OF SEASON (v0.9.4.3 improved + glow effect trigger) ---
-
-function endSeason(){
-  // Sorteer eindstand
-  const table = [...state.table].sort((a,b)=>b.pts-a.pts || b.gd-a.gd || b.gf-a.gf);
-  const pos = table.findIndex(t=>t.id==="you") + 1;
-
-  // Kampioen glow-effect trigger
-  if(pos === 1){
-    state._seasonChampionGlow = true;
-  } else {
-    state._seasonChampionGlow = false;
-  }
-
-  // Titel + promoties / degradaties
-  let msg = `Seizoen ${state.season} afgerond.\nEindpositie: #${pos}/${table.length}`;
-
-  if(pos === 1){
-    msg += "\n🏆 Je bent kampioen!";
-    state.stats.leaguesWon++;
-    state.trophies.push({type:'league', name:divisionName(), season:state.season});
-  }
-
-  if(state.division > 1 && pos <= 2){
-    state.division--;
-    msg += `\n↑ PROMOTIE naar ${divisionName()}`;
-  } else if(state.division < 5 && pos === table.length){
-    state.division++;
-    msg += `\n↓ DEGRADATIE naar ${divisionName()}`;
-  }
-
-  // Prijzengeld
-  const prize = Math.round(400000 / state.division * (table.length - pos + 1));
-  state.budget += prize;
-  msg += `\nPrijzengeld: ${fmt(prize)}`;
-
-  state.stats.prizeMoney += prize;
-
-  // Save to history
-  state.tableYour = table.find(t=>t.id==="you");
-  addSeasonToHistory(pos);
-
-  alert(msg);
-
-  // Reset spelers
-  for(const p of state.squad){
-    p.age++;
-    if(p.contract > 0) p.contract--;
-    p.injured = 0;
-    p.suspended = 0;
-    p.yellows = 0;
-    p.reds = 0;
-    p.apps = 0;
-    p.seasonGoals = 0;
-    p.seasonAssists = 0;
-
-    // Progression / degeneration
-    if(p.age <= 25){
-      p.ovr += rand(0,2);
-    } else if(p.age >= 31){
-      p.ovr -= rand(0,1);
-    }
-  }
-
-  // New season
-  state.season++;
-  state.matchday = 1;
-
-  genSponsorOffers();
-  state.aiClubs = genAIClubs();
-  state.table = [ initYourClub(), ...state.aiClubs ];
-  state.fixtures = generateFixturesFast();
-  refreshMarket();
-  generateYouthPool();
-  resetCup();
-
-  render();
-}
-
-
-// --- VIEWS (v0.9.4.3 improved UI + glow effect support) ---
-
-function viewSquad(){
-  let list = state.squad.slice().sort((a,b)=>b.ovr-a.ovr);
-
-  const rows = list.map(p => `
-    <tr>
-      <td class="pos">${p.pos}</td>
-      <td><strong>${p.name}</strong><div class="muted">${p.age} jr • Pot ${p.pot}</div></td>
-      <td>${p.ovr}</td>
-      <td>${p.pace}</td>
-      <td>${p.passing}</td>
-      <td>${p.shooting}</td>
-      <td>${p.defense}</td>
-      <td>${p.apps}</td>
-      <td>${p.seasonGoals ?? 0}</td>
-      <td>${p.contract} jr</td>
-      <td class="money">${fmt(p.wage)}/wk</td>
-      <td class="money">${fmt(p.value)}</td>
-      <td>
-        <button onclick="negotiateContract('${p.id}')">Contract</button>
-        <button onclick="releasePlayer('${p.id}')">Ontbind</button>
-      </td>
-    </tr>
-  `).join("");
-
-  return `
-    <div class="card">
-      <h2>Selectie (${state.squad.length})</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Pos</th><th>Naam</th><th>OVR</th><th>PAC</th><th>PAS</th><th>SHO</th><th>DEF</th>
-            <th>Apps</th><th>Goals</th><th>Contract</th><th>Loon</th><th>Waarde</th><th></th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  `;
-}
-
-function viewFixtures(){
-  const table = [...state.table].sort((a,b)=>b.pts-a.pts || b.gd-a.gd || b.gf-a.gf);
-  const rowsLeague = table.map((t,i)=>{
-    const isYou = (t.id === "you");
-    const champion = (i===0);
-
-    // positie kleur markeringen
-    let cls = "";
-    if(champion) cls = "tr-champion";
-    else if(i <= 1) cls = "tr-promote";
-    else if(i === table.length-1) cls = "tr-relegate";
-
-    return `
-      <tr class="${cls}" ${isYou?'style="font-weight:700"':''}>
-        <td>${i+1}</td>
-        <td>${t.name}</td>
-        <td>${t.pts}</td>
-        <td>${t.gf}</td>
-        <td>${t.ga}</td>
-        <td>${t.gd}</td>
-      </tr>
-    `;
-  }).join("");
-
-  // Fixtures
-  let rowsFix = "";
-  state.fixtures.forEach((week,md)=>{
-    week.forEach(match=>{
-      rowsFix += `
-        <tr>
-          <td>${md+1}</td>
-          <td>${match[0].name}</td>
-          <td>${match[1].name}</td>
-        </tr>
-      `;
-    });
-  });
-
-  return `
-    <div class="grid grid-2">
-      <div class="card">
-        <h2>Programma</h2>
-        <table>
-          <thead><tr><th>MD</th><th>Thuis</th><th>Uit</th></tr></thead>
-          <tbody>${rowsFix}</tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <h2>Stand — ${divisionName()}</h2>
-        <table>
-          <thead>
-            <tr><th>#</th><th>Club</th><th>Pt</th><th>DV</th><th>DT</th><th>DS</th></tr>
-          </thead>
-          <tbody>${rowsLeague}</tbody>
-        </table>
-      </div>
-    </div>
-  `;
-}
-
-function viewSponsors(){
-  const s = state.sponsors;
-
-  const block = (kind,title) => {
-    const a = s[kind].active;
-    const offers = s[kind].offers.map(o=>`
-      <tr>
-        <td><strong>${o.brand}</strong></td>
-        <td class="money">${fmt(o.baseWeekly)}/wk</td>
-        <td>${o.duration} jr</td>
-        <td><button class="primary" onclick="acceptSponsor('${kind}','${o.id}')">Accepteer</button></td>
-      </tr>
-    `).join("");
-
-    return `
-      <div class="card">
-        <h2>${title}</h2>
-        ${a ? `
-          <div class="muted">
-            Actief: <strong>${a.brand}</strong>
-            • ${fmt(a.baseWeekly)}/wk
-            • ${a.duration} jr
-          </div>
-          <button class="danger" onclick="cancelSponsor('${kind}')">Opzeggen</button>
-        ` : `<div class="muted">Geen actieve sponsor</div>`}
-
-        <h3 style="margin-top:10px">Nieuwe aanbiedingen</h3>
-        <table>
-          <thead><tr><th>Merk</th><th>Basis</th><th>Duur</th><th></th></tr></thead>
-          <tbody>${offers}</tbody>
-        </table>
-      </div>
-    `;
-  };
-
-  return `
-    <div class="grid grid-2">
-      ${block('shirt','Shirt-sponsor')}
-      ${block('main','Hoofdsponsor')}
-    </div>
-  `;
-}
-
-function viewMovementTab(){
-  return `
-    <div class="grid grid-2">
-      ${viewMovementOverview()}
-    </div>
-  `;
-}
-// --- FINANCE VIEW (v0.9.4.3 optimized rendering) ---
-
-function viewFinance(){
-  const f = state.finance.last || {
-    attendance:0,tickets:0,food:0,merch:0,
-    sponsor:0,tv:0,wages:0,maintenance:0,net:0
-  };
-
-  return `
-    <div class="card">
-      <h2>Laatste wedstrijd – Financieel overzicht</h2>
-
-      <div class="muted" style="margin-bottom:10px">
-        (Wordt na elke speeldag automatisch geüpdatet)
-      </div>
-
-      <table>
-        <tbody>
-          <tr><td>Toeschouwers</td><td>${f.attendance}</td></tr>
-          <tr><td>Tickets</td><td class="money">${fmt(f.tickets)}</td></tr>
-          <tr><td>Food & Drink</td><td class="money">${fmt(f.food)}</td></tr>
-          <tr><td>Merchandise</td><td class="money">${fmt(f.merch)}</td></tr>
-
-          <tr><td>Sponsors</td><td class="money">${fmt(f.sponsor)}</td></tr>
-          <tr><td>TV-Rechten</td><td class="money">${fmt(f.tv)}</td></tr>
-
-          <tr><td>Lonen</td><td class="money">${fmt(f.wages)}</td></tr>
-          <tr><td>Onderhoud (stadion)</td><td class="money">${fmt(f.maintenance)}</td></tr>
-
-          <tr style="font-weight:700">
-            <td>Netto resultaat</td>
-            <td class="money">${fmt(f.net)}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-
-// --- FACILITIES VIEW (v0.9.4.3 with tooltips + improved layout) ---
-
-function upgradeFacility(key){
-  const lv = state[key];
-  if(lv >= 10) return;
-  const cost = Math.round(50000 + lv*22000);
-  if(state.budget < cost) return alert("Onvoldoende budget!");
-  state.budget -= cost;
-  state[key]++;
-  render();
-}
-
-function viewFacilities(){
-  const block = (label,key,desc)=>{
-    const lv = state[key];
-    return `
-      <div class="card">
-        <h2>${label}</h2>
-        <div class="muted tooltip" data-tooltip="${desc}">
-          Niveau: <strong>${lv}/10</strong>
-        </div>
-
-        <div class="progress"><span style="width:${lv*10}%"></span></div>
-
-        <div class="muted" style="margin:8px 0">
-          Upgrade kost: <strong>${fmt(50000 + lv*22000)}</strong>
-        </div>
-
-        <button class="primary" ${lv>=10?"disabled":""}
-          onclick="upgradeFacility('${key}')">
-          Upgrade
-        </button>
-      </div>
-    `;
-  };
-
-  return `
-    <div class="grid grid-2">
-      ${block("Training","training","Verhoogt groeikansen en conditionele opbouw.")}
-      ${block("Jeugdacademie","youth","Levert betere en meer jeugdspelers op.")}
-      ${block("Scouting","scouting","Ontgrendelt betere spelers op de transfermarkt.")}
-      ${block("Stadion","stadium","Hogere capaciteit → hogere inkomsten.")}
-    </div>
-  `;
-}
-
-
-// --- MARKET VIEW (v0.9.4.3 streamlined) ---
-
-function viewMarket(){
-  const rows = state.market.map(p=>`
-    <tr>
-      <td class="pos">${p.pos}</td>
-      <td><strong>${p.name}</strong><div class="muted">${p.age} jr</div></td>
-      <td>${p.ovr}</td>
-      <td>${p.pot}</td>
-      <td class="money">${fmt(p.wage)}/wk</td>
-      <td class="money">${fmt(p.value)}</td>
-      <td><button class="primary" onclick="buyPlayer('${p.id}')">Koop</button></td>
-    </tr>
-  `).join("");
-
-  return `
-    <div class="card">
-      <h2>Transfermarkt</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Pos</th><th>Naam</th><th>OVR</th><th>POT</th>
-            <th>Loon</th><th>Waarde</th><th></th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-
-      <button onclick="refreshMarket()">Vernieuw markt</button>
-    </div>
-  `;
-}
-
-
-// --- YOUTH VIEW (v0.9.4.3 polished) ---
-
-function viewYouth(){
-  const rows = state.youthPool.map(p=>`
-    <tr>
-      <td class="pos">${p.pos}</td>
-      <td><strong>${p.name}</strong><div class="muted">${p.age} jr</div></td>
-      <td>${p.ovr}</td>
-      <td>${p.pot}</td>
-      <td class="money">${fmt(p.value)}</td>
-      <td><button class="primary" onclick="signYouth('${p.id}')">Teken</button></td>
-    </tr>
-  `).join("");
-
-  return `
-    <div class="card">
-      <h2>Jeugdspelers</h2>
-
-      <table>
-        <thead>
-          <tr>
-            <th>Pos</th><th>Naam</th><th>OVR</th><th>POT</th>
-            <th>Waarde</th><th></th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  `;
-}
-
-
-// --- CUP VIEW (v0.9.4.3 improved UI) ---
-
-function viewCup(){
-  if(!cupEligible()){
-    return `
-      <div class="card">
-        <h2>Beker</h2>
-        <div class="muted">Jouw divisie doet niet mee aan de beker.</div>
-      </div>
-    `;
-  }
-
-  const rows = state.cup.history.slice().reverse().map(f=>`
-    <tr>
-      <td>${f.home}</td>
-      <td>${f.away}</td>
-      <td>${f.score ? `${f.score[0]} - ${f.score[1]}` : '-'}</td>
-    </tr>
-  `).join("");
-
-  return `
-    <div class="card">
-      <h2>Beker – Ronde ${state.cup.round}</h2>
-
-      <button class="primary" onclick="playCupRound()" ${state.cup.active?'':'disabled'}>
-        Speel ronde
-      </button>
-
-      <h3 style="margin-top:10px">Laatste uitslagen</h3>
-      <table>
-        <thead><tr><th>Thuis</th><th>Uit</th><th>Score</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  `;
-}
-
-
-// --- CLUB TAB (v0.9.4.3: fixed history + icons) ---
-
-function viewClub(){
-  const rows = state.history.seasons.slice().reverse().map(h=>{
-    let icon = "";
-    if(h.pos === 1) icon = "🏆";
-    else if(h.pos <= 2) icon = "▲";
-    else if(h.pos === 12) icon = "▼";
-
-    return `
-      <tr>
-        <td>${h.season}</td>
-        <td>${h.division}</td>
-        <td><strong>${h.pos}</strong> ${icon}</td>
-        <td>${h.record}</td>
-        <td>${h.gf}</td>
-        <td>${h.ga}</td>
-        <td>${h.topScorer.name} (${h.topScorer.goals})</td>
-        <td class="money">${fmt(h.budgetEnd)}</td>
-      </tr>
-    `;
-  }).join("");
-
-  return `
-    <div class="card">
-      <h2>Clubhistorie</h2>
-
-      <table>
-        <thead>
-          <tr>
-            <th>SZN</th><th>Div</th><th>Pos</th><th>W-D-L</th>
-            <th>DV</th><th>DT</th><th>Topscorer</th><th>Budget</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  `;
-}
-// --- MOVEMENT TAB (v0.9.4.3 NEW TAB) ---
-
-function viewMovements(){
-  const data = scanDivisionResults();
-  const { promote, relegate } = data;
-
-  const prom = promote.map(n=>`<tr><td>▲</td><td>${n}</td></tr>`).join("");
-  const rel = relegate.map(n=>`<tr><td>▼</td><td>${n}</td></tr>`).join("");
-
-  return `
-    <div class="grid grid-2">
-      <div class="card">
-        <h2>Promoties</h2>
-        <table>
-          <thead><tr><th></th><th>Club</th></tr></thead>
-          <tbody>${prom}</tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <h2>Degradaties</h2>
-        <table>
-          <thead><tr><th></th><th>Club</th></tr></thead>
-          <tbody>${rel}</tbody>
-        </table>
-      </div>
-    </div>
-  `;
-}
-
-
-// --- TOPBAR RENDER (v0.9.4.3 optimized) ---
-
-function renderTopbar(){
-  document.getElementById("season").textContent = state.season;
-  document.getElementById("division").textContent = divisionName();
-  document.getElementById("budget").textContent = fmt(state.budget);
-  document.getElementById("matchday").textContent = state.matchday;
-}
-
-
-// --- NAVIGATION / TABS (v0.9.4.3 faster) ---
-
-function render(){
-  renderTopbar();
-
-  let html = "";
-  const tab = state.uiTab;
-
-  if(tab === "squad") html = viewSquad();
-  else if(tab === "fixtures") html = viewFixtures();
-  else if(tab === "sponsors") html = viewSponsors();
-  else if(tab === "finance") html = viewFinance();
-  else if(tab === "facilities") html = viewFacilities();
-  else if(tab === "market") html = viewMarket();
-  else if(tab === "youth") html = viewYouth();
-  else if(tab === "cup") html = viewCup();
-  else if(tab === "club") html = viewClub();
-  else if(tab === "movements") html = viewMovementTab();
-
-  document.getElementById("view").innerHTML = html;
-}
-
-
-// --- DIVISION NAME UTILITY ---
-
-function divisionName(){
-  return `Divisie ${state.division}`;
-}
-
-
-// --- UTILS (v0.9.4.3 lightweight) ---
-
-function rndName(){
-  return choice(NAMES) + " " + choice(["Jansen","Bakker","Visser","Smit","Mulder","Dekker","Vos","Meijer","van Leeuwen"]);
-}
-
-function rndPos(){
-  return choice(["GK","LB","CB","CB","RB","CM","CM","LM","RM","ST","ST"]);
-}
-
-window.toast = function(msg){
-  const box = document.getElementById("toast");
-  box.textContent = msg;
-  box.classList.add("show");
-  setTimeout(()=>box.classList.remove("show"),2000);
-};
-
-
-// --- NEW GAME (v0.9.4.3 setup + speed optimizations) ---
-
-function newGame(){
-  state = {
-    version: "0.9.4.3",
-    division: 5,
-    season: 1,
-    matchday: 1,
-    budget: 450000,
-    uiTab: "squad",
-
-    squad: [],
-    market: [],
-    youthPool: [],
-    sponsors: {
-      shirt: { active: null, offers: [] },
-      main:  { active: null, offers: [] }
+/**
+ * Online Voetbal Manager V3.6
+ * - FIX: Automatische tab-wissel na promotie/degradatie.
+ * - UI: Groene (promotie) en Rode (degradatie) zones in de stand.
+ */
+
+// --- 1. CONFIGURATIE ---
+const CONFIG = {
+    version: "3.6",
+    gameTitle: "Online Voetbal Manager",
+    startBudget: 300000,
+    currency: "€",
+    maxMatchdays: 34,
+
+    costs: {
+        stadium: [0, 100000, 250000, 500000, 1000000, 2500000, 5000000, 10000000],
+        training: [0, 75000, 150000, 300000, 750000, 1500000, 3000000, 6000000],
+        medical:  [0, 50000, 100000, 200000, 500000, 1000000, 2000000, 4000000]
     },
 
-    finance: { last:null },
-    history: { seasons:[] },
-    trophies: [],
-    stats: {
-      leaguesWon: 0,
-      cupsWon: 0,
-      prizeMoney: 0
+    tactics: {
+        neutral: { name: "Neutraal (4-4-2)", attBonus: 0, defBonus: 0, desc: "Gebalanceerde speelstijl." },
+        attack:  { name: "Aanvallend (4-3-3)", attBonus: 5, defBonus: -5, desc: "Scoor meer, maar geef meer weg." },
+        defense: { name: "Verdedigend (5-3-2)", attBonus: -5, defBonus: 5, desc: "Parkeer de bus. Minder tegengoals." }
+    },
+
+    sponsors: {
+        local: ["Bakkerij Jansen", "Garage Snel", "Café 't Hoekje", "Slagerij Henk", "Kapsalon Modern"],
+        national: ["Jumbo", "Albert Heijn", "Gamma", "Praxis", "Coolblue", "Bol.com"],
+        global: ["Ziggo", "KPN", "Philips", "Heineken", "ASML", "Shell", "ING"]
+    },
+    
+    firstNames: ["Jan", "Piet", "Klaas", "Luuk", "Daan", "Sem", "Lucas", "Milan", "Levi", "Noah", "Thijs", "Jesse", "Bram", "Tom", "Tim", "Lars", "Finn", "Kevin", "Rico", "Nick", "Xavi", "Mo", "Denzel"],
+    lastNames:  ["Jansen", "de Vries", "Bakker", "Visser", "Smit", "Meijer", "de Jong", "Mulder", "Groot", "Bos", "Vos", "Peters", "Hendriks", "Dekker", "Brouwer", "Koning", "Maas", "Simons", "Gakpo"],
+    positions: ["DM", "VL", "CV", "VR", "VVM", "CM", "CAM", "LB", "SP", "RB"],
+    
+    realLeagues: {
+        1: ["PSV", "Feyenoord", "FC Twente", "AZ", "Ajax", "NEC", "FC Utrecht", "Sparta Rotterdam", "Go Ahead Eagles", "Fortuna Sittard", "sc Heerenveen", "PEC Zwolle", "Almere City FC", "Heracles Almelo", "RKC Waalwijk", "Willem II", "FC Groningen", "NAC Breda"],
+        2: ["Excelsior", "FC Volendam", "Vitesse", "ADO Den Haag", "Roda JC", "FC Dordrecht", "De Graafschap", "FC Emmen", "SC Cambuur", "VVV-Venlo", "MVV Maastricht", "Helmond Sport", "Telstar", "TOP Oss", "FC Den Bosch", "FC Eindhoven", "Jong Ajax", "Jong PSV", "Jong AZ", "Jong FC Utrecht"]
+    },
+    cities: ["Amsterdam", "Rotterdam", "Utrecht", "Eindhoven", "Groningen", "Tilburg", "Breda", "Zwolle", "Leiden", "Maastricht", "Dordrecht", "Emmen", "Venlo"],
+    suffixes: ["FC", "United", "City", "Boys", "'04", "SV", "Rangers", "Stars"]
+};
+
+const UTILS = {
+    rid: () => Math.random().toString(36).slice(2, 10),
+    rand: (min, max) => Math.floor(Math.random() * (max - min + 1)) + min,
+    choice: (arr) => arr[Math.floor(Math.random() * arr.length)],
+    fmtMoney: (n) => `${CONFIG.currency} ${n.toLocaleString('nl-NL')}`,
+    genName: () => `${UTILS.choice(CONFIG.firstNames)} ${UTILS.choice(CONFIG.lastNames)}`,
+    genClubName: () => `${UTILS.choice(CONFIG.cities)} ${UTILS.choice(CONFIG.suffixes)}`,
+    getLeagueName: (div) => div === 1 ? "Eredivisie" : (div === 2 ? "Keuken Kampioen Div" : `Divisie ${div}`),
+    getLeagueShort: (div) => div === 1 ? "ERE" : (div === 2 ? "KKD" : `DIV ${div}`)
+};
+
+// --- 2. STATE ---
+const Store = {
+    state: {
+        game: { day: 1, season: 1 },
+        club: { 
+            id: "player_club", name: "Mijn Club", budget: CONFIG.startBudget, division: 5,
+            facilities: { stadium: 1, training: 1, medical: 1 },
+            tactic: "neutral",
+            sponsor: null, sponsorOffers: []
+        },
+        cup: { active: false, inTournament: false, nextRound: 0, history: [] },
+        ui: { currentTab: 'welcome', viewDivision: 5, theme: 'dark' },
+        finance: { lastWeek: { income: 0, expenses: 0, profit: 0, breakdown: [] } },
+        
+        team: [], market: [], transferList: [], incomingOffers: [], youthAcademy: [],
+        competitions: {}, results: []
+    },
+
+    init() {
+        const saved = localStorage.getItem("ovm_save_v36");
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                this.state = { ...this.state, ...parsed };
+                this.state.club = { ...this.state.club, ...parsed.club };
+                this.state.club.facilities = { ...this.state.club.facilities, ...parsed.club.facilities };
+                if(!this.state.cup) this.state.cup = { active: false, inTournament: false, nextRound: 0, history: [] };
+                if(this.state.ui.currentTab === 'welcome' && this.state.team.length > 0) this.state.ui.currentTab = 'dashboard';
+            } catch (e) { this.state.ui.currentTab = 'welcome'; }
+        } else { this.state.ui.currentTab = 'welcome'; }
+        UI.applyTheme();
+    },
+
+    startGame(customName) {
+        this.state.club.name = customName || "Mijn Club FC";
+        this.state.club.budget = CONFIG.startBudget;
+        this.state.club.facilities = { stadium: 1, training: 1, medical: 1 };
+        this.state.club.tactic = "neutral";
+        this.state.game.day = 1;
+        this.state.game.season = 1;
+        this.state.club.division = 5;
+        this.state.ui.viewDivision = 5;
+        this.state.ui.currentTab = 'dashboard';
+        
+        this.state.team = Engine.generateSquad(18);
+        this.state.market = Engine.generateMarket(15);
+        this.state.transferList = [];
+        this.state.incomingOffers = [];
+        this.state.youthAcademy = [];
+        
+        this.state.competitions = Engine.generateAllDivisions();
+        Engine.generateSponsorOffers();
+        Engine.initCupSeason();
+
+        this.save();
+        UI.render(); 
+    },
+
+    save() { localStorage.setItem("ovm_save_v36", JSON.stringify(this.state)); UI.toast("Spel opgeslagen"); },
+    reset() { if(confirm("Opnieuw beginnen?")){ localStorage.removeItem("ovm_save_v36"); location.reload(); } }
+};
+
+// --- 3. ENGINE ---
+const Engine = {
+    generateSquad(n) { let s=[]; for(let i=0;i<n;i++) s.push(this.createPlayer(i<2?"DM":null)); return s.sort((a,b)=>b.ovr-a.ovr); },
+    generateMarket(n) { let s=[]; for(let i=0;i<n;i++) s.push(this.createPlayer()); return s.sort((a,b)=>b.ovr-a.ovr); },
+    
+    createPlayer(posOverride, ageOverride) { 
+        const finalPos = posOverride || UTILS.choice(CONFIG.positions); 
+        const age = ageOverride || UTILS.rand(16,35);
+        let base = 40;
+        if(age > 22) base = 55;
+        if(age > 28) base = 60;
+        const ovr = base + UTILS.rand(0,20); 
+        const val = Math.round(ovr*ovr*25 + UTILS.rand(0,10000));
+        const wage = Math.round(val/250); 
+        return { id: UTILS.rid(), name: UTILS.genName(), age: age, pos: finalPos, ovr: ovr, value: val, wage: wage }; 
+    },
+
+    scoutYouth() {
+        if(Store.state.club.facilities.training < 3) return UI.toast("Je hebt Training Level 3 nodig!");
+        const cost = 25000;
+        if(Store.state.club.budget < cost) return UI.toast("Scouten kost € 25.000");
+        Store.state.club.budget -= cost;
+        const talent = this.createPlayer(null, 15 + UTILS.rand(0,1));
+        talent.ovr = 35 + UTILS.rand(0,15); 
+        talent.value = 10000; talent.wage = 100;
+        Store.state.youthAcademy.push(talent);
+        Store.save(); UI.render(); UI.toast("Talent gevonden!");
+    },
+
+    promoteYouth(id) {
+        const idx = Store.state.youthAcademy.findIndex(x=>x.id===id); if(idx<0) return;
+        const p = Store.state.youthAcademy[idx];
+        if(Store.state.team.length >= 30) return UI.toast("Selectie is vol!");
+        if(Store.state.club.budget < 5000) return UI.toast("Te weinig geld");
+        Store.state.club.budget -= 5000;
+        Store.state.team.push(p); Store.state.youthAcademy.splice(idx, 1);
+        Store.save(); UI.render(); UI.toast(`${p.name} getekend!`);
+    },
+
+    placeBid(id) {
+        const p = Store.state.market.find(x=>x.id===id); if(!p) return;
+        const minV = Math.round(p.value * 0.9); const maxV = Math.round(p.value * 1.3);
+        const ask = prompt(`Marktwaarde: ${UTILS.fmtMoney(minV)} - ${UTILS.fmtMoney(maxV)}\nDoe een bod op ${p.name}:`, p.value);
+        if(!ask) return;
+        const bid = parseInt(ask);
+        if(isNaN(bid)) return UI.toast("Ongeldig bedrag");
+        if(Store.state.club.budget < bid) return UI.toast("Onvoldoende budget!");
+        const required = Math.round(p.value * (0.95 + Math.random()*0.3)); 
+        if(bid >= required) {
+            if(Store.state.team.length >= 30) return UI.toast("Selectie is vol!");
+            Store.state.club.budget -= bid;
+            Store.state.team.push(p); Store.state.market = Store.state.market.filter(x=>x.id !== id);
+            Store.save(); UI.render(); alert(`✅ BOD GEACCEPTEERD!\n\n${p.name} komt naar jouw club.`);
+        } else { alert(`❌ BOD GEWEIGERD.\n\nDe club wil minstens ${UTILS.fmtMoney(required)}.`); }
+    },
+
+    toggleTransferList(id) {
+        const idx = Store.state.transferList.indexOf(id);
+        if(idx > -1) { Store.state.transferList.splice(idx, 1); UI.toast("Van transferlijst."); } 
+        else { Store.state.transferList.push(id); UI.toast("Op transferlijst."); }
+        Store.save(); UI.render();
+    },
+
+    acceptOffer(offerId) {
+        const oIdx = Store.state.incomingOffers.findIndex(o => o.id === offerId); if(oIdx < 0) return;
+        const offer = Store.state.incomingOffers[oIdx];
+        const pIndex = Store.state.team.findIndex(p => p.id === offer.playerId);
+        
+        if(pIndex < 0) { Store.state.incomingOffers.splice(oIdx, 1); Store.save(); UI.render(); return; }
+        if(Store.state.team.length <= 11) return UI.toast("Minimaal 11 spelers houden!");
+        
+        const p = Store.state.team[pIndex];
+        Store.state.club.budget += offer.amount;
+        Store.state.team.splice(pIndex, 1); Store.state.incomingOffers.splice(oIdx, 1);
+        const tlIdx = Store.state.transferList.indexOf(offer.playerId); if(tlIdx > -1) Store.state.transferList.splice(tlIdx, 1);
+        Store.save(); UI.render(); alert(`🤝 DEAL!\n\n${p.name} verkocht aan ${offer.club} voor ${UTILS.fmtMoney(offer.amount)}.`);
+    },
+
+    rejectOffer(offerId) {
+        const idx = Store.state.incomingOffers.findIndex(o => o.id === offerId);
+        if(idx > -1) { Store.state.incomingOffers.splice(idx, 1); Store.save(); UI.render(); UI.toast("Bod geweigerd."); }
+    },
+
+    generateSponsorOffers() {
+        let offers = []; const divFactor = (6 - Store.state.club.division); 
+        let pool = Store.state.club.division <= 2 ? CONFIG.sponsors.global : (Store.state.club.division <= 3 ? CONFIG.sponsors.national : CONFIG.sponsors.local);
+        for(let i=0; i<3; i++) offers.push({ id:UTILS.rid(), name:UTILS.choice(pool), amount: 15000*divFactor + UTILS.rand(-2000,5000), duration: UTILS.rand(10,30) });
+        Store.state.club.sponsorOffers = offers;
+    },
+    
+    signSponsor(id) { 
+        const o = Store.state.club.sponsorOffers.find(x=>x.id===id); 
+        if(o) { Store.state.club.sponsor = {name:o.name, amount:o.amount, weeksLeft:o.duration}; Store.state.club.sponsorOffers=[]; Store.save(); UI.render(); } 
+    },
+    
+    generateAllDivisions() { 
+        let comps={}; 
+        for(let d=1;d<=5;d++){ 
+            let teams=[]; let size=d===1?18:(d===2?20:16); let ai=(d===5)?size-1:size; 
+            const mkTeam = (id, name, str) => ({ id, name, strength: str, pts: 0, played: 0, won: 0, draw: 0, lost: 0, gf: 0, ga: 0, gd: 0 });
+            if(CONFIG.realLeagues[d]) CONFIG.realLeagues[d].forEach(n => teams.push(mkTeam(UTILS.rid(), n, d===1?80:70))); 
+            else for(let i=0;i<ai;i++) teams.push(mkTeam(UTILS.rid(), UTILS.genClubName(), 90-(d*10))); 
+            if(d===5) teams.push(mkTeam(Store.state.club.id, Store.state.club.name, 0)); 
+            comps[d]=teams; 
+        } 
+        return comps; 
+    },
+
+    initCupSeason() {
+        const div = Store.state.club.division;
+        if(div <= 3) {
+            Store.state.cup = { active: true, inTournament: true, nextRound: 5, history: [] };
+        } else {
+            Store.state.cup = { active: false, inTournament: false, history: [] };
+        }
+    },
+
+    playCupMatch() {
+        const c = Store.state.cup;
+        if(!c.inTournament) return;
+        const possibleDivs = [1, 2, 3];
+        const rndDiv = UTILS.choice(possibleDivs);
+        const opponents = Store.state.competitions[rndDiv].filter(t => t.id !== Store.state.club.id);
+        const opp = UTILS.choice(opponents);
+        const res = this.playMatch({strength: this.calculatePlayerTeamStrength(), id: Store.state.club.id}, opp);
+        
+        let msg = "", win = false;
+        if(res[0] === res[1]) {
+            win = Math.random() > 0.5;
+            msg = `Gelijkspel (${res[0]}-${res[1]}). Strafschoppen... ${win ? 'GEWONNEN!' : 'VERLOREN.'}`;
+        } else if(res[0] > res[1]) { win = true; msg = `WINST! (${res[0]}-${res[1]})`; } 
+        else { win = false; msg = `VERLIES. (${res[0]}-${res[1]})`; }
+
+        let roundName = "";
+        if(Store.state.game.day === 5) roundName = "1/8 Finale";
+        if(Store.state.game.day === 10) roundName = "Kwartfinale";
+        if(Store.state.game.day === 15) roundName = "Halve Finale";
+        if(Store.state.game.day === 20) roundName = "FINALE";
+
+        c.history.push({ round: roundName, opponent: opp.name, result: msg, score: res, win: win });
+
+        if(!win) {
+            c.inTournament = false;
+            alert(`🏆 KNVB BEKER - ${roundName}\n\n${msg}\n\nJe ligt uit het toernooi.`);
+        } else {
+            if(roundName === "FINALE") {
+                Store.state.club.budget += 250000;
+                c.inTournament = false;
+                alert(`🏆🏆🏆 KAMPIOEN!\n\nJe wint de KNVB Beker!\nBonus: € 250.000`);
+            } else {
+                alert(`🏆 KNVB BEKER - ${roundName}\n\n${msg}\n\nJe bent door naar de volgende ronde!`);
+            }
+        }
+    },
+    
+    calculatePlayerTeamStrength() { const s=Store.state.team; if(s.length===0)return 30; const b=s.slice().sort((a,b)=>b.ovr-a.ovr).slice(0,11); return Math.round(b.reduce((a,c)=>a+c.ovr,0)/b.length); },
+    upgradeFacility(type) { const lvl=Store.state.club.facilities[type]; if(lvl>=8)return UI.toast("Max level"); const c=CONFIG.costs[type][lvl]; if(Store.state.club.budget<c)return UI.toast("Te weinig budget"); Store.state.club.budget-=c; Store.state.club.facilities[type]++; Store.save(); UI.render(); UI.toast("Upgrade!"); },
+    setTactic(key) { Store.state.club.tactic=key; Store.save(); UI.render(); UI.toast(`Tactiek: ${CONFIG.tactics[key].name}`); },
+
+    processMatchday() {
+        if(Store.state.game.day > CONFIG.maxMatchdays) { this.endSeason(); return; }
+        Store.state.results = []; 
+        const me = Store.state.competitions[Store.state.club.division].find(c => c.id === Store.state.club.id);
+        if(me) me.strength = this.calculatePlayerTeamStrength();
+
+        let report = { income: 0, expenses: 0, breakdown: [] };
+        if(Store.state.cup && Store.state.cup.inTournament) {
+            const days = [5, 10, 15, 20];
+            if(days.includes(Store.state.game.day)) this.playCupMatch();
+        }
+
+        const wages = Store.state.team.reduce((sum, p) => sum + p.wage, 0);
+        const maint = (Store.state.club.facilities.stadium * 1000) + (Store.state.club.facilities.training * 800) + (Store.state.club.facilities.medical * 1500);
+        report.expenses = wages + maint;
+        report.breakdown.push({txt:"Salarissen & Onderhoud", amt:-(wages+maint)});
+
+        if(Store.state.club.sponsor) {
+            report.income += Store.state.club.sponsor.amount;
+            report.breakdown.push({txt:`Sponsor (${Store.state.club.sponsor.name})`, amt:Store.state.club.sponsor.amount});
+            Store.state.club.sponsor.weeksLeft--;
+            if(Store.state.club.sponsor.weeksLeft<=0) { Store.state.club.sponsor=null; UI.toast("Sponsor contract afgelopen"); this.generateSponsorOffers(); }
+        }
+        Store.state.club.budget += (report.income - report.expenses);
+
+        for(let div = 1; div <= 5; div++) this.simulateRound(div, report);
+        this.simulateTransfers();
+        Store.state.market.splice(0, 3); Store.state.market.push(...this.generateMarket(3)); Store.state.market.sort((a,b)=>b.ovr-a.ovr);
+        Store.state.finance.lastWeek = { ...report, profit: report.income - report.expenses };
+        Store.state.game.day++; Store.save(); UI.render(); UI.toast(`Ronde ${Store.state.game.day-1} voltooid.`);
+    },
+
+    simulateRound(divNr, report) {
+        const teams = Store.state.competitions[divNr];
+        if(!teams) return; 
+        if(Store.state.game.day > (teams.length-1)*2) return;
+        
+        const shuf = [...teams].sort(()=>0.5-Math.random());
+        for(let i=0; i<shuf.length; i+=2) {
+            const h=shuf[i], a=shuf[i+1]; if(!a) break;
+            if(h.id===Store.state.club.id) {
+                const inc = Math.round(500 * Math.pow(1.6, Store.state.club.facilities.stadium) * 0.85 * 18 * 1.2);
+                Store.state.club.budget += inc;
+                if(report) { report.income+=inc; report.breakdown.push({txt:"Tickets", amt:inc}); }
+            }
+            const res = this.playMatch(h,a);
+            if(divNr===Store.state.club.division) Store.state.results.push({home:h.name, away:a.name, score:res, isYou:(h.id===Store.state.club.id||a.id===Store.state.club.id)});
+            this.applyResult(h,a,res);
+        }
+    },
+
+    simulateTransfers() {
+        Store.state.team.forEach(p => {
+            let chance = Store.state.transferList.includes(p.id) ? 0.25 : (p.ovr > 75 ? 0.02 : 0);
+            if(Math.random() < chance) {
+                const existing = Store.state.incomingOffers.find(o => o.playerId === p.id);
+                if(existing) return;
+                let allAIClubs = [];
+                for(let d=1; d<=5; d++) if(Store.state.competitions[d]) allAIClubs.push(...Store.state.competitions[d].filter(c => c.id !== Store.state.club.id));
+                if(allAIClubs.length === 0) return; 
+                const buyer = UTILS.choice(allAIClubs);
+                const factor = 0.9 + (Math.random() * 0.4);
+                const amount = Math.round(p.value * factor);
+                Store.state.incomingOffers.push({ id: UTILS.rid(), playerId: p.id, playerName: p.name, club: buyer.name, amount: amount });
+                UI.toast(`📩 Bod van ${buyer.name} op ${p.name}!`);
+            }
+        });
+    },
+
+    playMatch(h,a){ 
+        let hS=h.strength+3, aS=a.strength;
+        if(h.id===Store.state.club.id) hS += 2+(Store.state.club.facilities.stadium*0.4) + CONFIG.tactics[Store.state.club.tactic].attBonus;
+        if(a.id===Store.state.club.id) aS += CONFIG.tactics[Store.state.club.tactic].attBonus;
+        let gH = Math.max(0, Math.round(1.5 + ((hS-aS)/15) + UTILS.rand(-1,2)));
+        let gA = Math.max(0, Math.round(1.2 - ((hS-aS)/15) + UTILS.rand(-1,2)));
+        return [gH,gA];
+    },
+    applyResult(h,a,[gh,ga]){ h.played++;a.played++;h.gf+=gh;h.ga+=ga;h.gd=h.gf-h.ga;a.gf+=ga;a.ga+=gh;a.gd=a.gf-a.ga; if(gh>ga){h.won++;h.pts+=3;a.lost++}else if(ga>gh){a.won++;a.pts+=3;h.lost++}else{h.draw++;h.pts++;a.draw++;a.pts++} },
+
+    endSeason() {
+        let msg=`Seizoen ${Store.state.game.season} voorbij!\n`;
+        let newC=JSON.parse(JSON.stringify(Store.state.competitions));
+        
+        for(let d=1; d<=5; d++) {
+            let t=Store.state.competitions[d].sort((a,b)=>b.pts-a.pts);
+            if(t.find(x=>x.id===Store.state.club.id)){
+                let pos=t.findIndex(x=>x.id===Store.state.club.id);
+                Store.state.club.budget += Math.round(1000000/d*(t.length-pos));
+                if(d>1 && pos<2) { msg+="GEPROMOVEERD! 🎉"; Store.state.club.division--; }
+                if(d<5 && pos>=t.length-2) { msg+="GEDEGRADEERD... 😞"; Store.state.club.division++; }
+            }
+            newC[d].forEach(x=>{ x.played=0;x.pts=0;x.gf=0;x.ga=0;x.gd=0;x.won=0;x.draw=0;x.lost=0; });
+        }
+        
+        Store.state.competitions=newC;
+        Store.state.team.forEach(p=>{ p.age++; p.value=Math.round(p.ovr*p.ovr*25); });
+        Store.state.transferList = []; Store.state.incomingOffers = [];
+        Store.state.game.season++; Store.state.game.day=1;
+        
+        // --- FIX: Reset UI View naar de nieuwe divisie! ---
+        Store.state.ui.viewDivision = Store.state.club.division;
+        
+        this.initCupSeason();
+        alert(msg); Store.save(); UI.render();
     }
-  };
+};
 
-  // generate players
-  for(let i=0;i<22;i++){
-    const pos = rndPos();
-    const ovr = 40 + rand(0,15);
-    const pot = ovr + rand(5,25);
-    state.squad.push({
-      id:rid(),
-      name:rndName(),
-      pos,
-      ovr,
-      pot,
-      pace: rand(30,80),
-      passing: rand(30,80),
-      shooting: rand(30,80),
-      defense: rand(30,80),
-      age: rand(17,34),
-      wage: Math.round((ovr*ovr)/7 + rand(20,120)),
-      value: Math.round((ovr*ovr)*40 + rand(3000,9000)),
-      contract: rand(1,3),
-      injured:0,
-      suspended:0,
-      yellows:0,
-      reds:0,
-      apps:0,
-      seasonGoals:0,
-      seasonAssists:0
-    });
-  }
+// --- 4. UI ---
+const UI = {
+    elements: {},
+    init() {
+        this.elements.app = document.getElementById("view");
+        document.body.addEventListener('click', (e) => this.handleClicks(e));
+        this.render();
+    },
 
-  // league generation
-  state.table = [ initYourClub(), ...genAIClubs() ];
-  state.fixtures = generateFixturesFast();
+    handleClicks(e) {
+        const t = e.target;
+        if(t.id === 'btn-continue') { if(Store.state.ui.currentTab !== 'welcome') Engine.processMatchday(); }
+        if(t.id === 'btn-save') Store.save();
+        if(t.id === 'btn-reset') Store.reset();
+        if(t.id === 'btn-theme-toggle') this.toggleTheme();
+        if(t.id === 'btn-start') Store.startGame(document.getElementById("inp-name").value);
+        if(t.id === 'btn-scout') Engine.scoutYouth();
+        
+        if(t.classList.contains('btn-list')) Engine.toggleTransferList(t.dataset.id);
+        if(t.classList.contains('btn-bid')) Engine.placeBid(t.dataset.id);
+        if(t.classList.contains('btn-acc')) Engine.acceptOffer(t.dataset.id);
+        if(t.classList.contains('btn-rej')) Engine.rejectOffer(t.dataset.id);
+        if(t.classList.contains('btn-sign')) Engine.promoteYouth(t.dataset.id);
+    },
 
-  refreshMarket();
-  generateYouthPool();
-  genSponsorOffers();
-  resetCup();
+    toggleTheme() { Store.state.ui.theme = (Store.state.ui.theme==='dark'?'light':'dark'); this.applyTheme(); Store.save(); this.updateThemeBtn(); },
+    applyTheme() { document.body.classList.toggle('light-mode', Store.state.ui.theme==='light'); },
+    updateThemeBtn() { document.getElementById("btn-theme-toggle").innerText = Store.state.ui.theme==='light' ? "☀️ Licht" : "🌙 Donker"; },
+    toast(msg) { const t=document.getElementById("toast"); t.innerText=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),3000); },
 
-  render();
-}
+    render() {
+        this.renderNav(); this.updateThemeBtn();
+        const tab = Store.state.ui.currentTab;
+        const cont = this.elements.app;
+        if(tab==='welcome') { document.querySelector(".sidebar").style.display='none'; document.querySelector(".top-header").style.display='none'; }
+        else { document.querySelector(".sidebar").style.display='flex'; document.querySelector(".top-header").style.display='flex'; this.renderTopbar(); }
 
+        cont.innerHTML="";
+        if(tab==='welcome') cont.appendChild(Views.Welcome());
+        else if(tab==='dashboard') cont.appendChild(Views.Dashboard());
+        else if(tab==='squad') cont.appendChild(Views.Squad());
+        else if(tab==='transfers') cont.appendChild(Views.TransferMarket());
+        else if(tab==='youth') cont.appendChild(Views.YouthAcademy());
+        else if(tab==='tactics') cont.appendChild(Views.Tactics());
+        else if(tab==='league') cont.appendChild(Views.League());
+        else if(tab==='fixtures') cont.appendChild(Views.Fixtures());
+        else if(tab==='club') cont.appendChild(Views.Facilities());
+        else if(tab==='sponsors') cont.appendChild(Views.Sponsors());
+        else if(tab==='finance') cont.appendChild(Views.Finance());
+        else if(tab==='beker') cont.appendChild(Views.Cup());
+    },
 
-// --- SAVE & LOAD (v0.9.4.3 safer + faster) ---
+    renderNav() {
+        const nav = document.getElementById("main-nav"); nav.innerHTML="";
+        const L = [
+            {id:'dashboard',i:'🏠',l:'Overzicht'}, {id:'squad',i:'👥',l:'Selectie'}, 
+            {id:'transfers',i:'💸',l:'Transfermarkt'}, {id:'youth',i:'🎓',l:'Jeugd'},
+            {id:'tactics',i:'📋',l:'Tactiek'}, {id:'league',i:'🏆',l:'Competitie'}, 
+            {id:'fixtures',i:'📅',l:'Programma'}, {id:'club',i:'🏗️',l:'Faciliteiten'}, 
+            {id:'sponsors',i:'🤝',l:'Sponsors'}, {id:'finance',i:'📊',l:'Financiën'}
+        ];
+        if(Store.state.club.division <= 3) L.push({id:'beker', i:'🏆', l:'KNVB Beker'});
+        L.forEach(x=>{
+            const d=document.createElement('div'); d.className=`nav-item ${Store.state.ui.currentTab===x.id?'active':''}`;
+            d.innerHTML=`<span style="margin-right:8px">${x.i}</span> ${x.l}`; d.onclick=()=>{Store.state.ui.currentTab=x.id;this.render();};
+            nav.appendChild(d);
+        });
+    },
 
-function saveGame(){
-  const data = JSON.stringify(state);
-  localStorage.setItem("voetbalmanager_save", data);
-  toast("Game opgeslagen");
-}
-
-function loadGame(){
-  const d = localStorage.getItem("voetbalmanager_save");
-  if(!d) return toast("Geen save gevonden");
-  try {
-    state = JSON.parse(d);
-    render();
-    toast("Save geladen");
-  } catch(err){
-    alert("Save corrupt!");
-  }
-}
-
-function resetGame(){
-  if(!confirm("Weet je zeker dat je een nieuw spel wilt starten?")) return;
-  newGame();
-  toast("Nieuw spel gestart");
-}
-
-
-// --- MATCHDAY BUTTON HANDLER ---
-
-function nextDay(){
-  if(state.matchday > state.fixtures.length){
-    return endSeason();
-  }
-  playNextMatchday();
-  render();
-}
-// --- UI SETUP (v0.9.4.3 optimized) ---
-
-function initUI(){
-  document.getElementById("tab-squad").onclick = ()=>{ state.uiTab="squad"; render(); };
-  document.getElementById("tab-fixtures").onclick = ()=>{ state.uiTab="fixtures"; render(); };
-  document.getElementById("tab-sponsors").onclick = ()=>{ state.uiTab="sponsors"; render(); };
-  document.getElementById("tab-finance").onclick = ()=>{ state.uiTab="finance"; render(); };
-  document.getElementById("tab-facilities").onclick = ()=>{ state.uiTab="facilities"; render(); };
-  document.getElementById("tab-market").onclick = ()=>{ state.uiTab="market"; render(); };
-  document.getElementById("tab-youth").onclick = ()=>{ state.uiTab="youth"; render(); };
-  document.getElementById("tab-cup").onclick = ()=>{ state.uiTab="cup"; render(); };
-  document.getElementById("tab-club").onclick = ()=>{ state.uiTab="club"; render(); };
-  document.getElementById("tab-movements").onclick = ()=>{ state.uiTab="movements"; render(); };
-
-  document.getElementById("nextDayBtn").onclick = nextDay;
-  document.getElementById("saveBtn").onclick = saveGame;
-  document.getElementById("loadBtn").onclick = loadGame;
-  document.getElementById("newGameBtn").onclick = resetGame;
-
-  render();
-}
-
-
-// --- DRAG & DROP HANDLING (v0.9.4.3 tightened & safer) ---
-
-function allowDrop(e){
-  e.preventDefault();
-}
-
-function dragOverXI(e, idx){
-  e.preventDefault();
-}
-function dragOverBench(e, idx){
-  e.preventDefault();
-}
-
-
-// --- TOGGLE DARK MODE (ready for future feature) ---
-
-function toggleDark(){
-  document.body.classList.toggle("dark");
-}
-
-
-// --- STARTUP LOGIC ---
-
-window.addEventListener("load", ()=>{
-  const save = localStorage.getItem("voetbalmanager_save");
-  if(save){
-    try {
-      state = JSON.parse(save);
-
-      // backward compatibility fixes (v0.9.4.0 → v0.9.4.3)
-      if(!state.history || typeof state.history !== "object")
-        state.history = { seasons:[] };
-
-      if(!state.stats)
-        state.stats = { leaguesWon:0, cupsWon:0, prizeMoney:0 };
-
-      if(!state.trophies)
-        state.trophies = [];
-
-      if(!state.finance)
-        state.finance = { last:null };
-
-      if(!state.uiTab)
-        state.uiTab = "squad";
-
-      if(!Array.isArray(state.squad))
-        state.squad = [];
-
-      if(!Array.isArray(state.market))
-        state.market = [];
-
-      if(!Array.isArray(state.youthPool))
-        state.youthPool = [];
-
-      if(!state.sponsors)
-        state.sponsors = { shirt:{active:null,offers:[]}, main:{active:null,offers:[]} };
-
-      if(!state.table || !Array.isArray(state.table))
-        state.table = [ initYourClub(), ...genAIClubs() ];
-
-      if(!state.fixtures || !Array.isArray(state.fixtures))
-        state.fixtures = generateFixturesFast();
-
-      initUI();
-      toast("Save geladen");
-      return;
-    } catch(err){
-      console.warn("Fout bij laden save:", err);
+    renderTopbar() {
+        document.getElementById("budget").innerText = UTILS.fmtMoney(Store.state.club.budget);
+        document.getElementById("club-name").innerText = Store.state.club.name;
+        document.getElementById("club-division").innerText = UTILS.getLeagueShort(Store.state.club.division);
+        let max = 0;
+        if(Store.state.competitions[Store.state.club.division]) {
+            max = (Store.state.competitions[Store.state.club.division].length-1)*2;
+        }
+        document.getElementById("matchday").innerText = `${Store.state.game.day} / ${max}`;
     }
-  }
+};
 
-  // anders: nieuw spel
-  newGame();
-  initUI();
-});
-// --- PLAYER GENERATION UTILITIES (v0.9.4.3 optimized) ---
+// --- 5. VIEWS ---
+const Views = {
+    Welcome() {
+        const d=document.createElement('div'); d.className="card"; d.style.textAlign="center"; d.style.maxWidth="400px"; d.style.margin="100px auto";
+        d.innerHTML=`<h1>${CONFIG.gameTitle}</h1><p class="muted">Start je carrière.</p><div style="margin:30px 0"><label style="display:block;margin-bottom:10px">Clubnaam</label><input type="text" id="inp-name" value="FC Breda" style="padding:10px;width:100%;border-radius:8px;border:1px solid #444;background:var(--bg-body);color:var(--text-main)"></div><button class="primary" id="btn-start" style="width:100%">Start Carrière</button>`;
+        return d;
+    },
 
-const POS = ["GK","LB","CB","RB","DM","CM","LM","RM","AM","LW","RW","ST"];
+    Dashboard() {
+        const d=document.createElement('div');
+        let offersHtml = "";
+        if(Store.state.incomingOffers.length > 0) offersHtml = `<div style="background:rgba(34,197,94,0.15); border:1px solid #22c55e; padding:15px; border-radius:8px; margin-bottom:20px;"><strong>🚨 Je hebt ${Store.state.incomingOffers.length} nieuw(e) bod(en)!</strong><br><span style="font-size:13px">Ga naar Transfermarkt.</span></div>`;
+        let sponsorHtml = "";
+        if(Store.state.club.sponsor) sponsorHtml = `<div style="margin-bottom:15px; padding:10px; border-radius:8px; background:rgba(34, 197, 94, 0.1); border:1px solid #22c55e;">Sponsor: <strong>${Store.state.club.sponsor.name}</strong> (+ ${UTILS.fmtMoney(Store.state.club.sponsor.amount)}/wk)</div>`;
+        else sponsorHtml = `<div style="margin-bottom:15px; padding:10px; border-radius:8px; background:rgba(239, 68, 68, 0.1); border:1px solid #ef4444;">⚠️ <strong>Geen sponsor!</strong> Ga snel naar Sponsors om een deal te sluiten.</div>`;
+        
+        let cupHtml = "";
+        if(Store.state.cup && Store.state.cup.active) {
+            const c = Store.state.cup;
+            const status = c.inTournament ? "<span style='color:#22c55e'>Je zit nog in het toernooi!</span>" : "<span style='color:#ef4444'>Uitgeschakeld.</span>";
+            cupHtml = `<div class="card" style="margin-bottom:15px; border-left:4px solid #facc15"><h3>🏆 KNVB Beker</h3><p>${status}</p></div>`;
+        }
 
-// Random player generator with fewer CPU calls
-function genPlayer(baseOVR=40){
-  const pos = choice(POS);
-  const ovr = baseOVR + rand(0,15);
-  const pot = ovr + rand(5,25);
+        const r = Store.state.results.find(x=>x.isYou);
+        let resHTML = r ? `<div style="font-size:20px;font-weight:bold;border-left:4px solid #22c55e;padding-left:10px;margin-top:10px">${r.home} ${r.score[0]} - ${r.score[1]} ${r.away}</div>` : `<p class="muted">Nog geen wedstrijd gespeeld.</p>`;
+        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${sponsorHtml}${cupHtml}<div class="card"><p>Welkom bij <strong>${Store.state.club.name}</strong>.</p><hr style="border:0;border-top:1px dashed var(--border);margin:15px 0"><h3>Laatste resultaat</h3>${resHTML}</div>`;
+        return d;
+    },
+    
+    Cup() {
+        const d = document.createElement('div');
+        const c = Store.state.cup;
+        let hist = "";
+        if(c.history.length === 0) hist = "<p class='muted'>Nog geen wedstrijden gespeeld.</p>";
+        else c.history.forEach(h => { hist += `<div style="padding:10px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between"><span><strong>${h.round}</strong> vs ${h.opponent}</span><span style="font-weight:bold; color:${h.win?'#22c55e':'#ef4444'}">${h.score[0]} - ${h.score[1]}</span></div>`; });
+        let status = c.inTournament ? `<div style="padding:20px; text-align:center; background:rgba(34,197,94,0.1); border-radius:8px; margin-bottom:20px"><h2 style="margin:0">Je zit nog in de race!</h2><p>Volgende ronde rond speeldag ${c.nextRound}</p></div>` : `<div style="padding:20px; text-align:center; background:rgba(239,68,68,0.1); border-radius:8px; margin-bottom:20px"><h2 style="margin:0">Helaas, uitgeschakeld.</h2></div>`;
+        d.innerHTML = `<h2>KNVB Beker</h2>${status}<div class="card"><h3>Geschiedenis</h3>${hist}</div>`;
+        return d;
+    },
 
-  return {
-    id: rid(),
-    name: rndName(),
-    pos,
-    ovr,
-    pot,
-    pace: rand(30,80),
-    passing: rand(30,80),
-    shooting: rand(30,80),
-    defense: rand(30,80),
-    age: rand(17,35),
-    wage: Math.round((ovr * ovr)/7 + rand(30,140)),
-    value: Math.round((ovr * ovr)*40 + rand(2000,12000)),
-    contract: rand(1,3),
-    injured: 0,
-    suspended: 0,
-    yellows: 0,
-    reds: 0,
-    apps: 0,
-    seasonGoals: 0,
-    seasonAssists: 0
-  };
-}
+    Sponsors() {
+        const d=document.createElement('div');
+        if(Store.state.club.sponsor) {
+            let s = Store.state.club.sponsor;
+            d.innerHTML=`<h2>Sponsor</h2><div class="card" style="text-align:center"><h1>${s.name}</h1><h3>${UTILS.fmtMoney(s.amount)} / week</h3><p class="muted">Looptijd: nog <strong>${s.weeksLeft}</strong> weken</p></div>`;
+        } else {
+            let h=`<h2>Sponsors</h2><div class="card">`;
+            Store.state.club.sponsorOffers.forEach(o=>{h+=`<div style="display:flex;justify-content:space-between;padding:10px;border-bottom:1px solid var(--border)"><div><strong>${o.name}</strong><br>${UTILS.fmtMoney(o.amount)}<br><span class="muted">${o.duration} weken</span></div><button class="primary" onclick="Engine.signSponsor('${o.id}')">Teken</button></div>`});
+            d.innerHTML=h+`</div>`;
+        } 
+        return d; 
+    },
 
+    Squad() {
+        const d=document.createElement('div');
+        let h=`<h2>Jouw Selectie</h2><div class="card"><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Waarde</th><th>Status</th></tr></thead><tbody>`;
+        Store.state.team.forEach(p=>{
+            let c=p.ovr>=70?"color:#22c55e":"";
+            const onList = Store.state.transferList.includes(p.id);
+            const btnClass = onList ? "secondary" : "danger";
+            const btnText = onList ? "Van lijst halen" : "Op lijst zetten";
+            const badge = onList ? '<span class="badge" style="background:#ef4444;color:white;margin-left:5px;font-size:10px">TE KOOP</span>' : '';
+            h+=`<tr><td><span class="pill">${p.pos}</span></td><td><strong>${p.name}</strong> ${badge}<br><span class="muted">${p.age} jr</span></td><td style="${c};font-weight:bold">${p.ovr}</td><td class="money">${UTILS.fmtMoney(p.value)}</td><td><button class="${btnClass} btn-list" data-id="${p.id}" style="font-size:11px; padding:4px 8px">${btnText}</button></td></tr>`;
+        });
+        d.innerHTML=h+`</tbody></table></div>`;
+        return d;
+    },
 
-// --- DEBUG PANEL (handig tijdens development) ---
+    TransferMarket() {
+        const d=document.createElement('div');
+        let offersHtml = "";
+        if(Store.state.incomingOffers.length > 0) {
+            offersHtml += `<h3>📩 Binnenkomende Biedingen</h3><div class="card">`;
+            Store.state.incomingOffers.forEach(o => { offersHtml += `<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed var(--border); padding:10px 0;"><div><span class="muted">Club:</span> <strong>${o.club}</strong><br><span class="muted">Speler:</span> <strong>${o.playerName}</strong><br><span class="muted">Bod:</span> <span style="color:#22c55e; font-weight:bold">${UTILS.fmtMoney(o.amount)}</span></div><div style="display:flex; gap:5px;"><button class="primary btn-acc" data-id="${o.id}">✅</button><button class="danger btn-rej" data-id="${o.id}">❌</button></div></div>`; });
+            offersHtml += `</div>`;
+        } else { offersHtml = `<div class="card" style="padding:15px; text-align:center; color:#aaa">Geen openstaande biedingen.</div>`; }
 
-function debugGiveMoney(){
-  state.budget += 500000;
-  toast("+ €500.000");
-  render();
-}
+        let marketHtml = `<h3>🛒 Spelers Kopen</h3><div class="card"><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Waarde Indicatie</th><th>Actie</th></tr></thead><tbody>`;
+        Store.state.market.forEach(p=>{
+            let c=p.ovr>=70?"color:#22c55e":"";
+            const min = Math.round(p.value * 0.9); const max = Math.round(p.value * 1.3);
+            marketHtml+=`<tr><td><span class="pill">${p.pos}</span></td><td><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td><td style="${c};font-weight:bold">${p.ovr}</td><td class="money">${UTILS.fmtMoney(min)} - ${UTILS.fmtMoney(max)}</td><td><button class="primary btn-bid" data-id="${p.id}">Bied</button></td></tr>`;
+        });
+        marketHtml+=`</tbody></table></div>`;
+        d.innerHTML = `<h2>Transfermarkt</h2>` + offersHtml + marketHtml;
+        return d;
+    },
 
-function debugInjureRandom(){
-  const p = choice(state.squad);
-  p.injured = 2 + rand(0,3);
-  toast(`${p.name} is geblesseerd...`);
-  render();
-}
+    YouthAcademy() {
+        const d=document.createElement('div');
+        const level = Store.state.club.facilities.training;
+        if(level < 3) { d.innerHTML = `<h2>Jeugdopleiding</h2><div class="card" style="text-align:center; padding:40px;"><h1 style="font-size:40px">🔒</h1><h3>Academy Gesloten</h3><p class="muted">Je hebt <strong>Trainingscomplex Niveau 3</strong> nodig.</p><p>Huidig niveau: ${level}</p></div>`; return d; }
+        let listHtml = "";
+        if(Store.state.youthAcademy.length === 0) { listHtml = `<p class="muted">Geen talenten. Stuur de scout op pad!</p>`; } 
+        else {
+            listHtml = `<table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Actie</th></tr></thead><tbody>`;
+            Store.state.youthAcademy.forEach(p => { listHtml += `<tr><td>${p.pos}</td><td><strong>${p.name}</strong> (${p.age} jr)</td><td>${p.ovr}</td><td><button class="primary btn-sign" data-id="${p.id}">Contract (€ 5.000)</button></td></tr>`; });
+            listHtml += `</tbody></table>`;
+        }
+        d.innerHTML = `<h2>Jeugdopleiding</h2><div class="card" style="display:flex; justify-content:space-between; align-items:center"><div><h3>Hoofd Scout</h3><div class="muted">Kost per sessie: <strong>€ 25.000</strong></div></div><button class="primary" id="btn-scout">🔎 Scout Talent</button></div><h3>Gescout Talent</h3><div class="card">${listHtml}</div>`;
+        return d;
+    },
 
+    Tactics() {
+        const d=document.createElement('div');
+        let h=`<h2>Tactiek</h2><div class="card" style="display:grid;gap:10px;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr))">`;
+        for(let k in CONFIG.tactics) {
+            let t = CONFIG.tactics[k];
+            let active = Store.state.club.tactic === k ? "border:2px solid #22c55e;background:rgba(34,197,94,0.1)" : "border:1px solid var(--border)";
+            h+=`<div onclick="Engine.setTactic('${k}')" style="padding:15px;border-radius:8px;cursor:pointer;${active}"><h3>${t.name}</h3><p class="muted" style="font-size:12px">${t.desc}</p></div>`;
+        }
+        d.innerHTML=h+`</div>`;
+        return d;
+    },
 
-// --- STAR RATING (v0.9.4.3 minor feature) ---
+    Facilities() {
+        const d=document.createElement('div');
+        const f = Store.state.club.facilities;
+        const btn = (t, l) => l>=8 ? `<button disabled>Max</button>` : `<button class="primary" onclick="Engine.upgradeFacility('${t}')">Upgrade (${UTILS.fmtMoney(CONFIG.costs[t][l])})</button>`;
+        d.innerHTML=`<h2>Faciliteiten</h2><div class="card" style="display:grid;gap:20px;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr))"><div style="border:1px solid var(--border);padding:15px;border-radius:8px"><h3>🏟️ Stadion <span class="badge">Lvl ${f.stadium}</span></h3><p class="muted">Meer tickets.</p>${btn('stadium', f.stadium)}</div><div style="border:1px solid var(--border);padding:15px;border-radius:8px"><h3>🏋️ Training <span class="badge">Lvl ${f.training}</span></h3><p class="muted">Spelersgroei & Jeugd.</p>${btn('training', f.training)}</div><div style="border:1px solid var(--border);padding:15px;border-radius:8px"><h3>🏥 Medisch <span class="badge">Lvl ${f.medical}</span></h3><p class="muted">Minder blessures (Toekomst).</p>${btn('medical', f.medical)}</div></div>`;
+        return d;
+    },
 
-function starRating(ovr){
-  if(ovr >= 85) return "★★★★★";
-  if(ovr >= 75) return "★★★★☆";
-  if(ovr >= 65) return "★★★☆☆";
-  if(ovr >= 55) return "★★☆☆☆";
-  return "★☆☆☆☆";
-}
+    League() { 
+        const d=document.createElement('div'); 
+        const v=Store.state.ui.viewDivision; 
+        let c=`<div class="chips" style="margin-bottom:15px">`; 
+        for(let i=1;i<=5;i++) c+=`<span class="chip ${v===i?'active':''}" onclick="Store.state.ui.viewDivision=${i};UI.render()">${UTILS.getLeagueShort(i)}</span>`; 
+        c+="</div>"; 
+        
+        let h=`<h2>Competitie</h2><div class="card">${c}<table><thead><tr><th>#</th><th>Club</th><th>G</th><th>W</th><th>G</th><th>V</th><th>Pt</th></tr></thead><tbody>`; 
+        let t=[...Store.state.competitions[v]].sort((a,b)=>b.pts-a.pts); 
+        
+        t.forEach((x,i)=>{
+            let s = "";
+            let rowClass = "";
 
+            // Jouw club highlight
+            if(x.id===Store.state.club.id) {
+                rowClass += " my-club";
+            }
 
-// --- SQUAD SORT HELPERS ---
+            // Promotie/Degradatie Kleuren
+            // Top 2 = Promotie (behalve in div 1)
+            if(v > 1 && i < 2) {
+                rowClass += " promo";
+            }
+            // Bodem 2 = Degradatie (behalve in div 5)
+            if(v < 5 && i >= t.length - 2) {
+                rowClass += " rele";
+            }
 
-function sortSquadByPos(arr){
-  const order = {
-    GK:0, LB:1, CB:2, RB:3, DM:4, CM:5, LM:6, RM:7, AM:8, LW:9, RW:10, ST:11
-  };
-  return arr.slice().sort((a,b)=> order[a.pos] - order[b.pos]);
-}
+            h+=`<tr class="${rowClass}"><td>${i+1}</td><td>${x.name}</td><td>${x.played}</td><td>${x.won}</td><td>${x.draw}</td><td>${x.lost}</td><td><strong>${x.pts}</strong></td></tr>`
+        }); 
+        d.innerHTML=h+`</tbody></table></div>`; 
+        return d; 
+    },
 
-function sortSquadByValue(arr){
-  return arr.slice().sort((a,b)=> b.value - a.value);
-}
+    Fixtures() { const d=document.createElement('div'); let h=`<h2>Uitslagen</h2><div class="card"><table>`; if(Store.state.results.length===0)h+="<p class='muted'>Geen data</p>"; else Store.state.results.forEach(r=>{h+=`<tr><td align="right">${r.home}</td><td align="center"><b>${r.score[0]}-${r.score[1]}</b></td><td>${r.away}</td></tr>`}); d.innerHTML=h+`</table></div>`; return d; },
+    Finance() { const d=document.createElement('div'); const f=Store.state.finance.lastWeek; let l=""; f.breakdown.forEach(x=>l+=`<div style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--border);padding:5px 0"><span>${x.txt}</span><span style="color:${x.amt>=0?'#22c55e':'#ef4444'}">${UTILS.fmtMoney(x.amt)}</span></div>`); d.innerHTML=`<h2>Financiën</h2><div class="card"><h3 style="text-align:center;margin-bottom:20px">${UTILS.fmtMoney(Store.state.club.budget)}</h3><h4>Weekrapport</h4>${l}<div style="display:flex;justify-content:space-between;margin-top:10px;font-weight:bold;font-size:18px"><span>Totaal</span><span style="color:${f.profit>=0?'#22c55e':'#ef4444'}">${UTILS.fmtMoney(f.profit)}</span></div></div>`; return d; }
+};
 
-function sortSquadByOvr(arr){
-  return arr.slice().sort((a,b)=> b.ovr - a.ovr);
-}
-
-
-// --- INJURY & CARD RESOLUTION EACH MATCHDAY ---
-
-function resolveDisciplineAndInjuries(){
-  for(const p of state.squad){
-    // reduce injury timers
-    if(p.injured > 0){
-      p.injured--;
-    }
-
-    // suspensions
-    if(p.suspended > 0){
-      p.suspended--;
-    }
-
-    // yellow → suspension
-    if(p.yellows >= 3){
-      p.suspended = 1;
-      p.yellows = 0;
-    }
-
-    // random injuries (2.5%)
-    if(Math.random() < 0.025){
-      p.injured = 1 + rand(0,2);
-      toast(`${p.name} raakt licht geblesseerd`);
-    }
-  }
-}
-
-
-// --- SIMPLE MATCHDAY LOOP (used inside playNextMatchday) ---
-
-function matchdayProcess(){
-  resolveDisciplineAndInjuries();
-  trainPlayers();
-  financeTick(true);
-}
-
-
-
-// --- CHAMPION ROW GLOW (v0.9.4.3) ---
-// Used in UI. If champion → row gets glow CSS class.
-
-function isChampionRow(idx){
-  return idx === 0 && state._seasonChampionGlow;
-}
-
-
-// --- SAFE EXPORTS FOR DEBUGGING (optional) ---
-
-window._state = ()=>state;
-window._reset = newGame;
-window._save = saveGame;
-window._load = loadGame;
-
-// --- FINAL SMALL HELPERS (v0.9.4.3) ---
-
-function money(n){
-  return fmt(n);
-}
-
-function tag(txt, col="#333"){
-  return `<span class="tag" style="background:${col}">${txt}</span>`;
-}
-
-function safeNum(n, def=0){
-  return (typeof n === "number" && !isNaN(n)) ? n : def;
-}
-
-function safeArr(a){
-  return Array.isArray(a) ? a : [];
-}
-
-
-// --- END OF FILE WRAPPER ---
-
-})(); // <--- sluit de volledige BlankBall Manager engine
+window.addEventListener('DOMContentLoaded', () => { Store.init(); UI.init(); });
