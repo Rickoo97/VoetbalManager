@@ -102,6 +102,7 @@ export const UI = {
             case 'club': cont.appendChild(Views.Facilities()); break;
             case 'sponsors': cont.appendChild(Views.Sponsors()); break;
             case 'finance': cont.appendChild(Views.Finance()); break;
+            case 'history': cont.appendChild(Views.History()); break;
             case 'beker': cont.appendChild(Views.Cup()); break;
             default: cont.innerHTML = "<p>Pagina niet gevonden</p>";
         }
@@ -122,7 +123,8 @@ export const UI = {
             {id:'fixtures',i:'📅',l:'Programma'}, 
             {id:'club',i:'🏗️',l:'Faciliteiten'}, 
             {id:'sponsors',i:'🤝',l:'Sponsors'}, 
-            {id:'finance',i:'📊',l:'Financiën'}
+            {id:'finance',i:'📊',l:'Financiën'},
+            {id:'history',i:'📜',l:'Historie'} // <--- NIEUW TOEGEVOEGD
         ];
 
         // Voeg beker alleen toe als je divisie hoog genoeg is (Div 1, 2 of 3)

@@ -7,16 +7,40 @@ export const Engine = {
     generateSquad(n) { let s=[]; for(let i=0;i<n;i++) s.push(this.createPlayer(i<2?"DM":null)); return s.sort((a,b)=>b.ovr-a.ovr); },
     generateMarket(n) { let s=[]; for(let i=0;i<n;i++) s.push(this.createPlayer()); return s.sort((a,b)=>b.ovr-a.ovr); },
     
-    createPlayer(posOverride, ageOverride) { 
-        const finalPos = posOverride || UTILS.choice(CONFIG.positions); 
+createPlayer(posOverride, ageOverride) { 
+        const pos = posOverride || UTILS.choice(CONFIG.positions); 
         const age = ageOverride || UTILS.rand(16,35);
+        
+        // Bepaal basisniveau op basis van leeftijd
         let base = 40;
         if(age > 22) base = 55;
         if(age > 28) base = 60;
-        const ovr = Math.floor(base + UTILS.rand(0,20)) || 50; // Fallback naar 50 als er iets geks gebeurt 
+        
+        // Genereer specifieke stats op basis van positie
+        let att, def, spd;
+        const rand = (min, max) => base + UTILS.rand(min, max);
+
+        if(["SP", "LB", "RB", "VL", "VR"].includes(pos)) {
+            // Aanvallers: Hoog aanval, redelijk snel, laag verdediging
+            att = rand(10, 30); spd = rand(5, 25); def = rand(-10, 10);
+        } else if(["CV", "VVM", "DM"].includes(pos)) {
+            // Verdedigers: Hoog verdediging, traag, laag aanval
+            def = rand(10, 30); spd = rand(-5, 15); att = rand(-10, 10);
+        } else {
+            // Middenvelders: Gebalanceerd
+            att = rand(0, 20); def = rand(0, 20); spd = rand(0, 20);
+        }
+
+        // Zorg dat stats niet onder 10 of boven 99 komen
+        const clamp = (n) => Math.max(10, Math.min(99, Math.floor(n)));
+        att = clamp(att); def = clamp(def); spd = clamp(spd);
+
+        // OVR is het gemiddelde (maar we wegen de 'belangrijke' stat zwaarder voor de waarde)
+        const ovr = Math.round((att + def + spd) / 3);
         const val = Math.round(ovr*ovr*25 + UTILS.rand(0,10000));
         const wage = Math.round(val/250); 
-        return { id: UTILS.rid(), name: UTILS.genName(), age: age, pos: finalPos, ovr: ovr, value: val, wage: wage }; 
+
+        return { id: UTILS.rid(), name: UTILS.genName(), age, pos, ovr, att, def, spd, value: val, wage }; 
     },
 
     scoutYouth() {
@@ -315,8 +339,20 @@ endSeason() {
         Store.state.ui.viewDivision = Store.state.club.division; // Zet view op je nieuwe divisie
         this.initCupSeason();
         
-        alert(msg); 
-        Store.save(); 
-        UI.render();
+        // --- NIEUW: HALL OF FAME UPDATE ---
+        if(!Store.state.history) Store.state.history = []; // Zeker weten dat array bestaat
+        
+        Store.state.history.push({
+            season: Store.state.game.season - 1, // Het seizoen dat net klaar is
+            division: currentDiv,
+            teamName: Store.state.club.name,
+            rank: pos + 1,
+            points: table[pos].pts,
+            result: promoted ? "Promotie" : (relegated ? "Degradatie" : "Handhaving")
+        });
+        // ----------------------------------
+
+        this.initCupSeason();
+        alert(msg); Store.save(); UI.render();
     }
 };

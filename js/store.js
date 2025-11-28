@@ -27,6 +27,23 @@ export const Store = {
                 
                 // 1. Merge de basis state
                 this.state = { ...this.state, ...parsed };
+
+                // --- DATA MIGRATIE: Oude spelers updaten ---
+                // Als spelers nog geen 'att' stat hebben, genereren we die nu op basis van hun OVR
+                const upgradePlayer = (p) => {
+                    if(p.att === undefined) {
+                        // Simpele verdeling voor bestaande spelers
+                        p.att = p.ovr; p.def = p.ovr; p.spd = p.ovr;
+                        // Iets variatie aanbrengen op basis van positie
+                        if(["SP", "LB", "RB"].includes(p.pos)) { p.att += 5; p.def -= 5; }
+                        if(["CV", "DM"].includes(p.pos)) { p.def += 5; p.att -= 5; }
+                    }
+                };
+                if(this.state.team) this.state.team.forEach(upgradePlayer);
+                if(this.state.market) this.state.market.forEach(upgradePlayer);
+                
+                if(!this.state.history) this.state.history = []; // Maak historie lijst aan als die mist
+                // --------------------------------------------
                 
                 // 2. Merge complexe objecten apart (zodat nieuwe features niet overschreven worden)
                 if(parsed.club) {

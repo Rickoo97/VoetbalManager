@@ -55,16 +55,28 @@ export const Views = {
         return d; 
     },
 
-    Squad() {
+Squad() {
         const d=document.createElement('div');
-        let h=`<h2>Jouw Selectie</h2><div class="card"><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Waarde</th><th>Status</th></tr></thead><tbody>`;
+        // Let op de extra headers: AAN, VER, SNL
+        let h=`<h2>Jouw Selectie</h2><div class="card"><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th title="Aanval">AAN</th><th title="Verdediging">VER</th><th title="Snelheid">SNL</th><th>Waarde</th><th>Status</th></tr></thead><tbody>`;
         Store.state.team.forEach(p=>{
             let c=p.ovr>=70?"color:#22c55e":"";
             const onList = Store.state.transferList.includes(p.id);
             const btnClass = onList ? "secondary" : "danger";
-            const btnText = onList ? "Van lijst halen" : "Op lijst zetten";
-            const badge = onList ? '<span class="badge" style="background:#ef4444;color:white;margin-left:5px;font-size:10px">TE KOOP</span>' : '';
-            h+=`<tr><td><span class="pill">${p.pos}</span></td><td><strong>${p.name}</strong> ${badge}<br><span class="muted">${p.age} jr</span></td><td style="${c};font-weight:bold">${p.ovr}</td><td class="money">${UTILS.fmtMoney(p.value)}</td><td><button class="${btnClass} btn-list" data-id="${p.id}" style="font-size:11px; padding:4px 8px">${btnText}</button></td></tr>`;
+            const btnText = onList ? "Terug" : "Verkoop"; // Kortere tekst past beter
+            const badge = onList ? '<span class="badge" style="background:#ef4444;color:white;font-size:9px">TE KOOP</span>' : '';
+            
+            // Nieuwe kolommen toegevoegd voor p.att, p.def, p.spd
+            h+=`<tr>
+                <td><span class="pill">${p.pos}</span></td>
+                <td><strong>${p.name}</strong> ${badge}<br><span class="muted">${p.age} jr</span></td>
+                <td style="${c};font-weight:bold">${p.ovr}</td>
+                <td class="muted" style="font-size:13px">${p.att}</td>
+                <td class="muted" style="font-size:13px">${p.def}</td>
+                <td class="muted" style="font-size:13px">${p.spd}</td>
+                <td class="money">${UTILS.fmtMoney(p.value)}</td>
+                <td><button class="${btnClass} btn-list" data-id="${p.id}" style="font-size:11px; padding:4px 8px">${btnText}</button></td>
+            </tr>`;
         });
         d.innerHTML=h+`</tbody></table></div>`;
         return d;
@@ -149,5 +161,31 @@ export const Views = {
     },
 
     Fixtures() { const d=document.createElement('div'); let h=`<h2>Uitslagen</h2><div class="card"><table>`; if(Store.state.results.length===0)h+="<p class='muted'>Geen data</p>"; else Store.state.results.forEach(r=>{h+=`<tr><td align="right">${r.home}</td><td align="center"><b>${r.score[0]}-${r.score[1]}</b></td><td>${r.away}</td></tr>`}); d.innerHTML=h+`</table></div>`; return d; },
-    Finance() { const d=document.createElement('div'); const f=Store.state.finance.lastWeek; let l=""; f.breakdown.forEach(x=>l+=`<div style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--border);padding:5px 0"><span>${x.txt}</span><span style="color:${x.amt>=0?'#22c55e':'#ef4444'}">${UTILS.fmtMoney(x.amt)}</span></div>`); d.innerHTML=`<h2>Financiën</h2><div class="card"><h3 style="text-align:center;margin-bottom:20px">${UTILS.fmtMoney(Store.state.club.budget)}</h3><h4>Weekrapport</h4>${l}<div style="display:flex;justify-content:space-between;margin-top:10px;font-weight:bold;font-size:18px"><span>Totaal</span><span style="color:${f.profit>=0?'#22c55e':'#ef4444'}">${UTILS.fmtMoney(f.profit)}</span></div></div>`; return d; }
+    Finance() { const d=document.createElement('div'); const f=Store.state.finance.lastWeek; let l=""; f.breakdown.forEach(x=>l+=`<div style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--border);padding:5px 0"><span>${x.txt}</span><span style="color:${x.amt>=0?'#22c55e':'#ef4444'}">${UTILS.fmtMoney(x.amt)}</span></div>`); d.innerHTML=`<h2>Financiën</h2><div class="card"><h3 style="text-align:center;margin-bottom:20px">${UTILS.fmtMoney(Store.state.club.budget)}</h3><h4>Weekrapport</h4>${l}<div style="display:flex;justify-content:space-between;margin-top:10px;font-weight:bold;font-size:18px"><span>Totaal</span><span style="color:${f.profit>=0?'#22c55e':'#ef4444'}">${UTILS.fmtMoney(f.profit)}</span></div></div>`; return d; },
+    History() {
+        const d = document.createElement('div');
+        const hist = Store.state.history || [];
+        
+        let content = "";
+        if(hist.length === 0) {
+            content = `<div class="card" style="text-align:center; padding:30px;"><span style="font-size:40px">📜</span><h3>Nog geen historie</h3><p class="muted">Speel een seizoen uit om hier data te zien.</p></div>`;
+        } else {
+            let rows = "";
+            // Sorteer op seizoen (nieuwste bovenaan)
+            [...hist].reverse().forEach(h => {
+                let badgeColor = h.result === "Promotie" ? "#22c55e" : (h.result === "Degradatie" ? "#ef4444" : "#facc15");
+                rows += `<tr>
+                    <td>Seizoen ${h.season}</td>
+                    <td>Divisie ${h.division}</td>
+                    <td># ${h.rank}</td>
+                    <td>${h.points}</td>
+                    <td><span class="badge" style="background:${badgeColor}; color:#000">${h.result}</span></td>
+                </tr>`;
+            });
+            content = `<div class="card"><table><thead><tr><th>Seizoen</th><th>Competitie</th><th>Positie</th><th>Punten</th><th>Resultaat</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        }
+        
+        d.innerHTML = `<h2>🏆 Hall of Fame</h2>${content}`;
+        return d;
+    },
 };
