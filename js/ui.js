@@ -40,6 +40,13 @@ export const UI = {
         if(btn.classList.contains('btn-acc')) Engine.acceptOffer(btn.dataset.id);
         if(btn.classList.contains('btn-rej')) Engine.rejectOffer(btn.dataset.id);
         if(btn.classList.contains('btn-sign')) Engine.promoteYouth(btn.dataset.id);
+
+        // ... in handleClicks ...
+        if(btn.classList.contains('btn-rej')) Engine.rejectOffer(btn.dataset.id);
+        if(btn.classList.contains('btn-sign')) Engine.promoteYouth(btn.dataset.id);
+        
+        // NIEUW:
+        if(btn.classList.contains('btn-extend')) Engine.extendContract(btn.dataset.id);
     },
 
     toggleTheme() { 

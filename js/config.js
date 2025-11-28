@@ -1,5 +1,5 @@
 export const CONFIG = {
-    version: "3.6.1",
+    version: "3.6.2",
     gameTitle: "Online Voetbal Manager",
     startBudget: 300000,
     currency: "€",
@@ -31,6 +31,6 @@ export const CONFIG = {
         1: ["PSV", "Feyenoord", "FC Twente", "AZ", "Ajax", "NEC", "FC Utrecht", "Sparta Rotterdam", "Go Ahead Eagles", "Fortuna Sittard", "sc Heerenveen", "PEC Zwolle", "Almere City FC", "Heracles Almelo", "RKC Waalwijk", "Willem II", "FC Groningen", "NAC Breda"],
         2: ["Excelsior", "FC Volendam", "Vitesse", "ADO Den Haag", "Roda JC", "FC Dordrecht", "De Graafschap", "FC Emmen", "SC Cambuur", "VVV-Venlo", "MVV Maastricht", "Helmond Sport", "Telstar", "TOP Oss", "FC Den Bosch", "FC Eindhoven", "Jong Ajax", "Jong PSV", "Jong AZ", "Jong FC Utrecht"]
     },
-    cities: ["Amsterdam", "Rotterdam", "Utrecht", "Eindhoven", "Groningen", "Tilburg", "Breda", "Zwolle", "Leiden", "Maastricht", "Dordrecht", "Emmen", "Venlo"],
-    suffixes: ["FC", "United", "City", "Boys", "'04", "SV", "Rangers", "Stars"]
+    cities: ["Amsterdam", "Rotterdam", "Utrecht", "Eindhoven", "Groningen", "Tilburg", "Breda", "Zwolle", "Leiden", "Maastricht", "Dordrecht", "Emmen", "Venlo", "Almere", "Haarlem", "Apeldoorn", "Amersfoort", "Hengelo", "Assen", "Middelburg"],
+    suffixes: ["FC", "United", "City", "Boys", "'04", "SV", "Rangers", "Stars", "Quick", "Boys"]
 };

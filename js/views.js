@@ -57,28 +57,42 @@ export const Views = {
 
 Squad() {
         const d=document.createElement('div');
-        // Let op de extra headers: AAN, VER, SNL
-        let h=`<h2>Jouw Selectie</h2><div class="card"><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th title="Aanval">AAN</th><th title="Verdediging">VER</th><th title="Snelheid">SNL</th><th>Waarde</th><th>Status</th></tr></thead><tbody>`;
+        // Extra header: Con (Contract)
+        let h=`<h2>Jouw Selectie</h2><div class="card"><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Con</th><th>Waarde</th><th>Actie</th></tr></thead><tbody>`;
+        
         Store.state.team.forEach(p=>{
-            let c=p.ovr>=70?"color:#22c55e":"";
-            const onList = Store.state.transferList.includes(p.id);
-            const btnClass = onList ? "secondary" : "danger";
-            const btnText = onList ? "Terug" : "Verkoop"; // Kortere tekst past beter
-            const badge = onList ? '<span class="badge" style="background:#ef4444;color:white;font-size:9px">TE KOOP</span>' : '';
+            let c = p.ovr>=70 ? "color:#22c55e" : "";
             
-            // Nieuwe kolommen toegevoegd voor p.att, p.def, p.spd
+            // Contract kleur logic
+            let conColor = "";
+            let conText = `${p.contract} wkn`;
+            if(p.contract <= 5) { conColor = "color:#ef4444; font-weight:bold"; conText += " ⚠️"; }
+            else if(p.contract <= 10) { conColor = "color:#facc15"; }
+
+            const onList = Store.state.transferList.includes(p.id);
+            
+            // We maken een dropdown-achtige actie kolom of gewoon twee kleine knoppen
+            // Om ruimte te besparen: Als contract < 10 weken is, toon "Verleng" knop. Anders "Verkoop" knop.
+            let btnAction = "";
+            
+            if(p.contract <= 10) {
+                 btnAction = `<button class="primary btn-extend" data-id="${p.id}" style="font-size:10px; padding:4px 6px">✍️ Verleng</button>`;
+            } else {
+                 const btnClass = onList ? "secondary" : "danger";
+                 const btnLabel = onList ? "Terug" : "Verkoop";
+                 btnAction = `<button class="${btnClass} btn-list" data-id="${p.id}" style="font-size:10px; padding:4px 6px">${btnLabel}</button>`;
+            }
+
             h+=`<tr>
                 <td><span class="pill">${p.pos}</span></td>
-                <td><strong>${p.name}</strong> ${badge}<br><span class="muted">${p.age} jr</span></td>
+                <td><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td>
                 <td style="${c};font-weight:bold">${p.ovr}</td>
-                <td class="muted" style="font-size:13px">${p.att}</td>
-                <td class="muted" style="font-size:13px">${p.def}</td>
-                <td class="muted" style="font-size:13px">${p.spd}</td>
+                <td style="${conColor}">${conText}</td>
                 <td class="money">${UTILS.fmtMoney(p.value)}</td>
-                <td><button class="${btnClass} btn-list" data-id="${p.id}" style="font-size:11px; padding:4px 8px">${btnText}</button></td>
+                <td>${btnAction}</td>
             </tr>`;
         });
-        d.innerHTML=h+`</tbody></table></div>`;
+        d.innerHTML=h+`</tbody></table><p class="muted" style="font-size:12px; margin-top:10px">* Spelers met < 10 weken contract kun je verlengen. Als het contract op 0 komt, vertrekken ze gratis.</p></div>`;
         return d;
     },
 

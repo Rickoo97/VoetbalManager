@@ -28,17 +28,21 @@ export const Store = {
                 // 1. Merge de basis state
                 this.state = { ...this.state, ...parsed };
 
-                // --- DATA MIGRATIE: Oude spelers updaten ---
-                // Als spelers nog geen 'att' stat hebben, genereren we die nu op basis van hun OVR
+                // --- DATA MIGRATIE ---
                 const upgradePlayer = (p) => {
+                    // 1. Stats fix (uit vorige update)
                     if(p.att === undefined) {
-                        // Simpele verdeling voor bestaande spelers
                         p.att = p.ovr; p.def = p.ovr; p.spd = p.ovr;
-                        // Iets variatie aanbrengen op basis van positie
                         if(["SP", "LB", "RB"].includes(p.pos)) { p.att += 5; p.def -= 5; }
                         if(["CV", "DM"].includes(p.pos)) { p.def += 5; p.att -= 5; }
                     }
+                    // 2. NIEUW: Contract fix
+                    // Geef bestaande spelers willekeurig tussen 10 en 40 weken contract
+                    if(p.contract === undefined) {
+                        p.contract = Math.floor(Math.random() * 30) + 10;
+                    }
                 };
+                
                 if(this.state.team) this.state.team.forEach(upgradePlayer);
                 if(this.state.market) this.state.market.forEach(upgradePlayer);
                 

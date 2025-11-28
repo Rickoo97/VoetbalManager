@@ -6,6 +6,11 @@ import { UI } from './ui.js';
 export const Engine = {
     generateSquad(n) { let s=[]; for(let i=0;i<n;i++) s.push(this.createPlayer(i<2?"DM":null)); return s.sort((a,b)=>b.ovr-a.ovr); },
     generateMarket(n) { let s=[]; for(let i=0;i<n;i++) s.push(this.createPlayer()); return s.sort((a,b)=>b.ovr-a.ovr); },
+
+// Helper: Checkt of een team een beloftenteam is
+    isYouthTeam(name) {
+        return name.toLowerCase().startsWith("jong ");
+    },
     
 createPlayer(posOverride, ageOverride) { 
         const pos = posOverride || UTILS.choice(CONFIG.positions); 
@@ -40,7 +45,10 @@ createPlayer(posOverride, ageOverride) {
         const val = Math.round(ovr*ovr*25 + UTILS.rand(0,10000));
         const wage = Math.round(val/250); 
 
-        return { id: UTILS.rid(), name: UTILS.genName(), age, pos, ovr, att, def, spd, value: val, wage }; 
+        // Voeg contract toe: Tussen 20 en 50 weken
+        const contract = UTILS.rand(20, 50);
+
+        return { id: UTILS.rid(), name: UTILS.genName(), age, pos, ovr, att, def, spd, value: val, wage, contract: contract }; 
     },
 
     scoutYouth() {
@@ -80,6 +88,28 @@ createPlayer(posOverride, ageOverride) {
             Store.state.team.push(p); Store.state.market = Store.state.market.filter(x=>x.id !== id);
             Store.save(); UI.render(); alert(`✅ BOD GEACCEPTEERD!\n\n${p.name} komt naar jouw club.`);
         } else { alert(`❌ BOD GEWEIGERD.\n\nDe club wil minstens ${UTILS.fmtMoney(required)}.`); }
+    },
+    
+    extendContract(id) {
+        const p = Store.state.team.find(x => x.id === id);
+        if(!p) return;
+
+        // Formule: Tekengeld = 10% van marktwaarde.
+        // Je krijgt er 25 weken bij.
+        const cost = Math.round(p.value * 0.10);
+        
+        if(confirm(`Contractverlenging voor ${p.name}?\n\nHuidig: ${p.contract} weken\nNieuw: +25 weken\n\nKosten: ${UTILS.fmtMoney(cost)}`)) {
+            if(Store.state.club.budget < cost) return UI.toast("Onvoldoende budget!");
+            
+            Store.state.club.budget -= cost;
+            p.contract += 25;
+            // Speler wordt ook iets meer waard en vraagt meer salaris na verlenging
+            p.wage = Math.round(p.wage * 1.1); 
+            
+            Store.save();
+            UI.render();
+            UI.toast("Contract verlengd! ✍️");
+        }
     },
 
     toggleTransferList(id) {
@@ -121,39 +151,54 @@ createPlayer(posOverride, ageOverride) {
         if(o) { Store.state.club.sponsor = {name:o.name, amount:o.amount, weeksLeft:o.duration}; Store.state.club.sponsorOffers=[]; Store.save(); UI.render(); } 
     },
     
-generateAllDivisions() { 
+// Wordt alleen aangeroepen bij start nieuw spel
+    generateAllDivisions() { 
         let comps = {}; 
-        // Haal de huidige divisie van de speler op (of 5 als fallback)
-        const playerDiv = Store.state.club ? Store.state.club.division : 5;
+        
+        // Helper om teams te maken met vaste ID's indien mogelijk
+        const mkTeam = (name, strength, isReal) => {
+            // Maak een 'slug' van de naam als ID (bijv. "Ajax" -> "ajax")
+            const id = isReal ? name.toLowerCase().replace(/[^a-z0-9]/g, '') : UTILS.rid();
+            return { 
+                id: id, 
+                name: name, 
+                strength: strength, 
+                pts: 0, played: 0, won: 0, draw: 0, lost: 0, gf: 0, ga: 0, gd: 0 
+            };
+        };
 
         for(let d=1; d<=5; d++){ 
             let teams = []; 
-            let size = d===1 ? 18 : (d===2 ? 20 : 16); 
             
-            // Als de speler in DEZE divisie zit, maken we 1 AI tegenstander minder aan
-            let aiCount = (d === playerDiv) ? size - 1 : size; 
-
-            const mkTeam = (id, name, str) => ({ id, name, strength: str, pts: 0, played: 0, won: 0, draw: 0, lost: 0, gf: 0, ga: 0, gd: 0 });
-            
+            // Echte competities (Div 1 & 2)
             if(CONFIG.realLeagues[d]) {
-                // Echte competities (Div 1 & 2)
-                // We nemen de lijst en halen er eentje af als de speler hier moet spelen
-                let realTeams = [...CONFIG.realLeagues[d]];
-                if(d === playerDiv) realTeams.pop(); // Verwijder de laatste echte club om plek te maken voor jou
-                
-                realTeams.forEach(n => teams.push(mkTeam(UTILS.rid(), n, d===1?80:70))); 
+                CONFIG.realLeagues[d].forEach(n => {
+                    // Ajax, PSV, etc krijgen nu een vast ID
+                    teams.push(mkTeam(n, d===1?80:70, true));
+                });
             } else {
-                // Fictieve competities (Div 3, 4, 5)
-                for(let i=0; i<aiCount; i++) teams.push(mkTeam(UTILS.rid(), UTILS.genClubName(), 90-(d*10))); 
+                // Fictieve competities (Div 3, 4, 5) - vul aan tot 18 teams voor balans
+                const size = 18; 
+                for(let i=0; i<size; i++) {
+                    teams.push(mkTeam(UTILS.genClubName(), 90-(d*10), false));
+                }
             }
-
-            // Voeg de speler toe als dit zijn divisie is
-            if(d === playerDiv) {
-                teams.push(mkTeam(Store.state.club.id, Store.state.club.name, 0)); 
-            }
-
             comps[d] = teams; 
-        } 
+        }
+
+        // Voeg JOUW club toe (vervangt een random team of wordt toegevoegd)
+        // We verwijderen het zwakste AI team uit jouw startdivisie (div 5) om ruimte te maken
+        const myDiv = Store.state.club.division; // standaard 5
+        if(comps[myDiv]) {
+            comps[myDiv].pop(); // Verwijder laatste AI team
+            comps[myDiv].push({ 
+                id: Store.state.club.id, 
+                name: Store.state.club.name, 
+                strength: 0, // Wordt berekend bij wedstrijden
+                pts: 0, played: 0, won: 0, draw: 0, lost: 0, gf: 0, ga: 0, gd: 0 
+            });
+        }
+        
         return comps; 
     },
 
@@ -166,19 +211,31 @@ generateAllDivisions() {
         }
     },
 
-    playCupMatch() {
+playCupMatch() {
         const c = Store.state.cup;
         if(!c.inTournament) return;
+        
+        // Kies een willekeurige divisie voor de tegenstander (1, 2 of 3)
         const possibleDivs = [1, 2, 3];
         const rndDiv = UTILS.choice(possibleDivs);
-        const opponents = Store.state.competitions[rndDiv].filter(t => t.id !== Store.state.club.id);
-        const opp = UTILS.choice(opponents);
+        
+        // --- NIEUWE LOGICA: Filter Jong teams eruit ---
+        const opponents = Store.state.competitions[rndDiv].filter(t => 
+            t.id !== Store.state.club.id &&  // Niet tegen jezelf
+            !this.isYouthTeam(t.name)        // GEEN Jong teams
+        );
+        // ----------------------------------------------
+
+        // Fallback: als er door het filteren geen tegenstanders zijn (heel onwaarschijnlijk), pak gewoon iemand
+        const opp = opponents.length > 0 ? UTILS.choice(opponents) : Store.state.competitions[rndDiv][0];
+
+        // ... (rest van de functie blijft hetzelfde: playMatch, uitslag, history push etc.)
         const res = this.playMatch({strength: this.calculatePlayerTeamStrength(), id: Store.state.club.id}, opp);
         
         let msg = "", win = false;
         if(res[0] === res[1]) {
-            win = Math.random() > 0.5;
-            msg = `Gelijkspel (${res[0]}-${res[1]}). Strafschoppen... ${win ? 'GEWONNEN!' : 'VERLOREN.'}`;
+             win = Math.random() > 0.5;
+             msg = `Gelijkspel (${res[0]}-${res[1]}). Strafschoppen... ${win ? 'GEWONNEN!' : 'VERLOREN.'}`;
         } else if(res[0] > res[1]) { win = true; msg = `WINST! (${res[0]}-${res[1]})`; } 
         else { win = false; msg = `VERLIES. (${res[0]}-${res[1]})`; }
 
@@ -218,6 +275,12 @@ generateAllDivisions() {
         if(Store.state.cup && Store.state.cup.inTournament) {
             const days = [5, 10, 15, 20];
             if(days.includes(Store.state.game.day)) this.playCupMatch();
+        }
+
+        // Verwijder spelers met contract <= 0
+        if(leavingPlayers.length > 0) {
+            Store.state.team = Store.state.team.filter(p => p.contract > 0);
+            alert(`⚠️ CONTRACT VERLOPEN!\n\nDe volgende spelers hebben de club transfervrij verlaten:\n- ${leavingPlayers.join("\n- ")}`);
         }
 
         const wages = Store.state.team.reduce((sum, p) => sum + p.wage, 0);
@@ -290,69 +353,125 @@ generateAllDivisions() {
 endSeason() {
         let msg = `Seizoen ${Store.state.game.season} voorbij!\n`;
         
-        // 1. Bereken promotie/degradatie op basis van de OUDE stand
-        let promoted = false;
-        let relegated = false;
-
-        // Check huidige positie van de speler
-        const currentDiv = Store.state.club.division;
-        const table = Store.state.competitions[currentDiv].sort((a,b) => b.pts - a.pts);
-        const pos = table.findIndex(x => x.id === Store.state.club.id);
+        // 1. Bewaar de eindstanden van dit seizoen (voor historie) en bepaal wie verhuist
+        // We maken een tijdelijke lijst van verhuizingen: { teamId: "ajax", from: 1, to: 2 }
+        let moves = [];
         
-        // Geef prijzengeld
-        const prizeMoney = Math.round(1000000 / currentDiv * (table.length - pos));
-        Store.state.club.budget += prizeMoney;
-        msg += `\nJe bent geëindigd op plek ${pos + 1}.\nPrijzengeld: ${UTILS.fmtMoney(prizeMoney)}\n`;
+        // Loop door elke divisie om promotie/degradatie te bepalen
+        for(let d=1; d<=5; d++) {
+            // Sorteer de tabel van deze divisie
+            let table = Store.state.competitions[d].sort((a,b) => {
+                if (b.pts !== a.pts) return b.pts - a.pts; // Meeste punten
+                return b.gd - a.gd; // Beter doelsaldo
+            });
 
-        // Check regels
-        if(currentDiv > 1 && pos < 2) { 
-            promoted = true; 
-            Store.state.club.division--; // Pas nummer aan
-            msg += "🎉 GEPROMOVEERD! Je gaat een divisie omhoog."; 
-        } else if(currentDiv < 5 && pos >= table.length - 2) { 
-            relegated = true; 
-            Store.state.club.division++; // Pas nummer aan
-            msg += "😞 GEDEGRADEERD... Je zakt een divisie."; 
-        } else {
-            msg += "Je blijft in dezelfde divisie.";
+            // --- JOUW CLUB CHECK ---
+            const myPos = table.findIndex(x => x.id === Store.state.club.id);
+            if(myPos > -1) {
+                const prize = Math.round(1000000 / d * (table.length - myPos));
+                Store.state.club.budget += prize;
+                msg += `\nJe bent geëindigd op plek ${myPos + 1} in Divisie ${d}.\nBonus: ${UTILS.fmtMoney(prize)}\n`;
+                
+                // Hall of Fame update (zoals we eerder bespraken)
+                if(!Store.state.history) Store.state.history = [];
+                let resTxt = "Handhaving";
+                if(d > 1 && myPos < 2) resTxt = "Promotie";
+                if(d < 5 && myPos >= table.length - 2) resTxt = "Degradatie";
+                
+                Store.state.history.push({
+                    season: Store.state.game.season,
+                    division: d,
+                    teamName: Store.state.club.name,
+                    rank: myPos + 1,
+                    points: table[myPos].pts,
+                    result: resTxt
+                });
+            }
+
+// --- BEPAAL AI & SPELER VERHUIZINGEN ---
+            
+            // PROMOTIE LOGICA
+            if(d > 1) {
+                let promotionSlots = 2; // Top 2 promoveert normaal gesproken
+                let promotedCount = 0;
+                
+                // We loopen door de ranglijst van boven naar beneden
+                for(let i=0; i<table.length; i++) {
+                    const t = table[i];
+                    
+                    // Als we al genoeg teams hebben laten promoveren, stoppen we
+                    if(promotedCount >= promotionSlots) break;
+
+                    // SPECIFIEKE REGEL: Van Div 2 (KKD) naar Div 1 (Eredivisie)
+                    // Jong teams mogen NIET promoveren
+                    if(d === 2 && this.isYouthTeam(t.name)) {
+                        // Doe niets, sla dit team over voor promotie
+                        // Ze krijgen wel hun prijzengeld (dat is hierboven al geregeld), maar verhuizen niet.
+                        continue; 
+                    }
+                    
+                    // Als het geen Jong team is (of we zitten in een lagere divisie waar het niet uitmaakt), verhuis het team
+                    moves.push({ team: t, from: d, to: d - 1 });
+                    promotedCount++;
+                }
+            }
+            
+            // DEGRADATIE LOGICA (Bodem 2 zakt)
+            // Hier hoeven we niks aan te passen, Jong teams kunnen wel degraderen
+            if(d < 5) {
+                const degradanten = table.slice(table.length - 2);
+                degradanten.forEach(t => moves.push({ team: t, from: d, to: d + 1 }));
+            }
         }
+
+        // 2. Voer de verhuizingen uit
+        // We maken 'schone' lijsten voor het nieuwe seizoen, maar behouden de teams
+        let newComps = {};
+        for(let d=1; d<=5; d++) newComps[d] = [];
+
+        // Eerst iedereen in de nieuwe bakjes stoppen
+        for(let d=1; d<=5; d++) {
+            Store.state.competitions[d].forEach(team => {
+                // Check of dit team gaat verhuizen
+                const move = moves.find(m => m.team.id === team.id);
+                const targetDiv = move ? move.to : d; // Zo niet, blijf in 'd'
+                
+                // Reset stats voor nieuwe seizoen
+                team.pts=0; team.played=0; team.won=0; team.draw=0; team.lost=0; team.gf=0; team.ga=0; team.gd=0;
+                
+                // Als team jij bent, update je state
+                if(team.id === Store.state.club.id) {
+                    Store.state.club.division = targetDiv;
+                }
+
+                newComps[targetDiv].push(team);
+            });
+        }
+
+        // 3. Update de globale state
+        Store.state.competitions = newComps;
         
-        // 2. Reset het seizoen
+        // Berichtgeving bouwen op basis van je nieuwe divisie
+        const oldDiv = Store.state.history[Store.state.history.length-1].division;
+        const newDiv = Store.state.club.division;
+        
+        if(newDiv < oldDiv) msg += "🎉 GEPROMOVEERD! Welkom in Divisie " + newDiv;
+        else if(newDiv > oldDiv) msg += "😞 GEDEGRADEERD... Succes in Divisie " + newDiv;
+        else msg += "Je blijft in Divisie " + newDiv;
+
+        // 4. Overige resets
         Store.state.game.season++;
         Store.state.game.day = 1;
-        
-        // 3. HERGENEREER competities (Dit fixt jouw bug!)
-        // Nu het divisienummer is aangepast, zal deze functie je in de juiste lijst zetten.
-        Store.state.competitions = this.generateAllDivisions();
-
-        // 4. Update speler leeftijden en waardes
-        Store.state.team.forEach(p => { 
-            p.age++; 
-            p.value = Math.round(p.ovr * p.ovr * 25); 
-        });
-        
-        // 5. Schoonmaak
+        Store.state.team.forEach(p => { p.age++; p.value = Math.round(p.ovr * p.ovr * 25); });
         Store.state.transferList = []; 
         Store.state.incomingOffers = [];
         
-        // 6. UI Update
-        Store.state.ui.viewDivision = Store.state.club.division; // Zet view op je nieuwe divisie
+        // 5. Update UI en Save
+        Store.state.ui.viewDivision = Store.state.club.division;
         this.initCupSeason();
         
-        // --- NIEUW: HALL OF FAME UPDATE ---
-        if(!Store.state.history) Store.state.history = []; // Zeker weten dat array bestaat
-        
-        Store.state.history.push({
-            season: Store.state.game.season - 1, // Het seizoen dat net klaar is
-            division: currentDiv,
-            teamName: Store.state.club.name,
-            rank: pos + 1,
-            points: table[pos].pts,
-            result: promoted ? "Promotie" : (relegated ? "Degradatie" : "Handhaving")
-        });
-        // ----------------------------------
-
-        this.initCupSeason();
-        alert(msg); Store.save(); UI.render();
-    }
+        alert(msg); 
+        Store.save(); 
+        UI.render();
+    },
 };
