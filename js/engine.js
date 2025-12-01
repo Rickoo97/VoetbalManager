@@ -709,7 +709,6 @@ endSeason() {
         let msg = `Seizoen ${Store.state.game.season} voorbij!\n`;
         
         // 1. Bewaar de eindstanden van dit seizoen (voor historie) en bepaal wie verhuist
-        // We maken een tijdelijke lijst van verhuizingen: { teamId: "ajax", from: 1, to: 2 }
         let moves = [];
         
         // Loop door elke divisie om promotie/degradatie te bepalen
@@ -721,61 +720,59 @@ endSeason() {
             });
 
             // --- JOUW CLUB CHECK ---
+            // Dit blok regelt geld en historie. Dit mag ALLEEN gebeuren voor jouw divisie.
             const myPos = table.findIndex(x => x.id === Store.state.club.id);
             if(myPos > -1) {
                 const prize = Math.round(1000000 / d * (table.length - myPos));
                 Store.state.club.budget += prize;
                 msg += `\nJe bent geëindigd op plek ${myPos + 1} in Divisie ${d}.\nBonus: ${UTILS.fmtMoney(prize)}\n`;
                 
-            // --- HALL OF FAME UPDATE (Met Beker) ---
-            if(!Store.state.history) Store.state.history = [];
-            
-            // Check of we de beker hebben gewonnen dit seizoen
-            // We kijken in de cup history of er een FINALE is die GEWONNEN is
-            const cupWin = Store.state.cup.history.find(h => h.round === "FINALE" && h.win === true);
-            const cupResult = cupWin ? "🏆 Winnaar" : "Geen";
+                // --- HALL OF FAME UPDATE ---
+                if(!Store.state.history) Store.state.history = [];
+                
+                // 1. Bepaal resultaat tekst (resTxt)
+                let resTxt = "Handhaving";
+                if(d > 1 && myPos < 2) resTxt = "Promotie"; // Top 2
+                if(d < 5 && myPos >= table.length - 2) resTxt = "Degradatie"; // Laatste 2
 
-            Store.state.history.push({
-                season: Store.state.game.season,
-                division: d,
-                teamName: Store.state.club.name,
-                rank: myPos + 1,
-                points: table[myPos].pts,
-                result: resTxt,
-                cup: cupResult // <--- NIEUW
-            });
-            }
+                // 2. Beker check
+                const cupWin = Store.state.cup.history.find(h => h.round === "FINALE" && h.win === true);
+                const cupResult = cupWin ? "🏆 Winnaar" : "Geen";
 
-// --- BEPAAL AI & SPELER VERHUIZINGEN ---
+                Store.state.history.push({
+                    season: Store.state.game.season,
+                    division: d,
+                    teamName: Store.state.club.name,
+                    rank: myPos + 1,
+                    points: table[myPos].pts,
+                    result: resTxt,
+                    cup: cupResult
+                });
+            } // <--- BELANGRIJK: Deze accolade sluit nu het "Mijn Club" gedeelte af!
+
+            // --- BEPAAL AI & SPELER VERHUIZINGEN ---
+            // Dit gebeurt nu voor ELKE divisie (buiten het if-blok hierboven)
             
             // PROMOTIE LOGICA
             if(d > 1) {
-                let promotionSlots = 2; // Top 2 promoveert normaal gesproken
+                let promotionSlots = 2; // Top 2 promoveert
                 let promotedCount = 0;
                 
-                // We loopen door de ranglijst van boven naar beneden
                 for(let i=0; i<table.length; i++) {
                     const t = table[i];
-                    
-                    // Als we al genoeg teams hebben laten promoveren, stoppen we
                     if(promotedCount >= promotionSlots) break;
 
-                    // SPECIFIEKE REGEL: Van Div 2 (KKD) naar Div 1 (Eredivisie)
-                    // Jong teams mogen NIET promoveren
+                    // Jong teams mogen NIET promoveren naar Eredivisie (Div 1)
                     if(d === 2 && this.isYouthTeam(t.name)) {
-                        // Doe niets, sla dit team over voor promotie
-                        // Ze krijgen wel hun prijzengeld (dat is hierboven al geregeld), maar verhuizen niet.
                         continue; 
                     }
                     
-                    // Als het geen Jong team is (of we zitten in een lagere divisie waar het niet uitmaakt), verhuis het team
                     moves.push({ team: t, from: d, to: d - 1 });
                     promotedCount++;
                 }
             }
             
             // DEGRADATIE LOGICA (Bodem 2 zakt)
-            // Hier hoeven we niks aan te passen, Jong teams kunnen wel degraderen
             if(d < 5) {
                 const degradanten = table.slice(table.length - 2);
                 degradanten.forEach(t => moves.push({ team: t, from: d, to: d + 1 }));
@@ -783,7 +780,6 @@ endSeason() {
         }
 
         // 2. Voer de verhuizingen uit
-        // We maken 'schone' lijsten voor het nieuwe seizoen, maar behouden de teams
         let newComps = {};
         for(let d=1; d<=5; d++) newComps[d] = [];
 
@@ -809,8 +805,10 @@ endSeason() {
         // 3. Update de globale state
         Store.state.competitions = newComps;
         
-        // Berichtgeving bouwen op basis van je nieuwe divisie
-        const oldDiv = Store.state.history[Store.state.history.length-1].division;
+        // Berichtgeving bouwen
+        const lastHist = Store.state.history[Store.state.history.length-1];
+        // Veiligheidscheck voor het geval history leeg is (zou niet moeten kunnen)
+        const oldDiv = lastHist ? lastHist.division : 5; 
         const newDiv = Store.state.club.division;
         
         if(newDiv < oldDiv) msg += "🎉 GEPROMOVEERD! Welkom in Divisie " + newDiv;
@@ -832,4 +830,4 @@ endSeason() {
         Store.save(); 
         UI.render();
     },
-};
+}
