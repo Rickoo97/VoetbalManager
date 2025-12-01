@@ -63,7 +63,7 @@ export const UI = {
 
     updateThemeBtn() { 
         const btn = document.getElementById("btn-theme-toggle");
-        if(btn) btn.innerText = Store.state.ui.theme==='light' ? "☀️ Licht" : "🌙 Donker"; 
+        if(btn) btn.innerText = Store.state.ui.theme==='light' ? "☀️" : "🌙"; 
     },
 
     toast(msg) { 
@@ -101,6 +101,7 @@ export const UI = {
             case 'welcome': cont.appendChild(Views.Welcome()); break;
             case 'dashboard': cont.appendChild(Views.Dashboard()); break;
             case 'squad': cont.appendChild(Views.Squad()); break;
+            case 'training': cont.appendChild(Views.Training()); break;
             case 'transfers': cont.appendChild(Views.TransferMarket()); break;
             case 'youth': cont.appendChild(Views.YouthAcademy()); break;
             case 'tactics': cont.appendChild(Views.Tactics()); break;
@@ -122,7 +123,8 @@ export const UI = {
         
         const L = [
             {id:'dashboard',i:'🏠',l:'Overzicht'}, 
-            {id:'squad',i:'👥',l:'Selectie'}, 
+            {id:'squad',i:'👥',l:'Selectie'},
+            {id:'training',i:'💪',l:'Training'}, 
             {id:'transfers',i:'💸',l:'Transfermarkt'}, 
             {id:'youth',i:'🎓',l:'Jeugd'},
             {id:'tactics',i:'📋',l:'Tactiek'}, 

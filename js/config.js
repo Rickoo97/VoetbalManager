@@ -1,5 +1,5 @@
 export const CONFIG = {
-    version: "3.6.2",
+    version: "3.7.0", // Versie update
     gameTitle: "Online Voetbal Manager",
     startBudget: 300000,
     currency: "€",
@@ -11,10 +11,29 @@ export const CONFIG = {
         medical:  [0, 50000, 100000, 200000, 500000, 1000000, 2000000, 4000000]
     },
 
+    // NIEUW: Uitgebreide tactiek data
     tactics: {
-        neutral: { name: "Neutraal (4-4-2)", attBonus: 0, defBonus: 0, desc: "Gebalanceerde speelstijl." },
-        attack:  { name: "Aanvallend (4-3-3)", attBonus: 5, defBonus: -5, desc: "Scoor meer, maar geef meer weg." },
-        defense: { name: "Verdedigend (5-3-2)", attBonus: -5, defBonus: 5, desc: "Parkeer de bus. Minder tegengoals." }
+        neutral: { 
+            name: "Neutraal (4-4-2)", 
+            desc: "Gebalanceerd. Sterk tegen 4-3-3, zwak tegen 5-3-2.",
+            strongAgainst: "attack",
+            weakAgainst: "defense",
+            attBonus: 0, defBonus: 0 
+        },
+        attack: { 
+            name: "Aanvallend (4-3-3)", 
+            desc: "Vol op de aanval. Sterk tegen 5-3-2, zwak tegen 4-4-2.",
+            strongAgainst: "defense",
+            weakAgainst: "neutral",
+            attBonus: 5, defBonus: -5 
+        },
+        defense: { 
+            name: "Verdedigend (5-3-2)", 
+            desc: "De bus parkeren. Sterk tegen 4-4-2, zwak tegen 4-3-3.",
+            strongAgainst: "neutral",
+            weakAgainst: "attack",
+            attBonus: -5, defBonus: 5 
+        }
     },
 
     sponsors: {

@@ -43,7 +43,7 @@ body {
   height: 100vh;
 }
 
-/* SIDEBAR */
+/* SIDEBAR (Desktop) */
 .sidebar {
   width: 240px;
   background: var(--bg-sidebar);
@@ -52,23 +52,33 @@ body {
   flex-direction: column;
   padding: 20px;
   flex-shrink: 0;
+  height: 100vh; 
+  overflow: hidden;
 }
 
 .brand {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 18px;
   font-weight: 800;
   color: var(--accent);
-  margin-bottom: 30px;
+  margin-bottom: 20px;
 }
 
 .nav-links {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  flex: 1;
+  flex: 1; 
+  overflow-y: auto; /* Scrollen als lijst te lang is */
+  min-height: 0;
+  margin-bottom: 20px;
+  
+  /* Mooiere scrollbar */
+  scrollbar-width: thin; 
+  scrollbar-color: var(--border) transparent;
 }
 
 .nav-item {
@@ -79,6 +89,12 @@ body {
   font-weight: 500;
   color: var(--text-muted);
   transition: 0.2s;
+  display: flex;
+  align-items: center;
+}
+
+.nav-item span {
+  margin-right: 10px; /* Icoon naast tekst op desktop */
 }
 
 .nav-item:hover {
@@ -88,11 +104,12 @@ body {
 
 .nav-item.active {
   background: var(--accent);
-  color: #06250f; /* Altijd donkergroen in active state */
+  color: #06250f; 
   font-weight: 700;
 }
 
 .sidebar-footer {
+  flex-shrink: 0; 
   border-top: 1px solid var(--border);
   padding-top: 20px;
 }
@@ -142,7 +159,17 @@ body {
   padding: 30px;
 }
 
-/* CARDS & ELEMENTS */
+/* --- COMPONENTS --- */
+
+/* RESPONSIVE GRID (Voor dashboard blokken) */
+.responsive-grid {
+  display: grid;
+  gap: 15px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  margin-bottom: 20px;
+}
+
+/* CARDS */
 .card {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -150,6 +177,7 @@ body {
   padding: 20px;
   margin-bottom: 20px;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  overflow-x: auto; /* Zorgt dat tabellen scrollen op mobiel */
 }
 
 h1, h2, h3 { margin-top: 0; }
@@ -174,16 +202,47 @@ button.primary:hover { filter: brightness(110%); }
 
 button.danger { background: var(--danger); color: white; border: none; }
 
-button.btn-theme { width: 100%; font-size: 13px; }
+button.secondary { background: rgba(128,128,128,0.2); border: none; }
+
+/* THEMA KNOP (HEADER) */
+.btn-icon {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  font-size: 20px;
+  padding: 5px 10px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+}
+.btn-icon:hover { background: rgba(255, 255, 255, 0.1); transform: scale(1.1); }
+
+/* KOFFIE KNOP (SIDEBAR) */
+.btn-coffee {
+  display: block;
+  text-align: center;
+  background: #FFDD00;
+  color: #000;
+  text-decoration: none;
+  padding: 10px;
+  border-radius: 8px;
+  font-weight: bold;
+  font-size: 13px;
+  margin-bottom: 10px;
+  transition: transform 0.2s;
+}
+.btn-coffee:hover { transform: scale(1.02); }
 
 /* TABLE */
-table { width: 100%; border-collapse: collapse; }
+table { width: 100%; border-collapse: collapse; min-width: 500px; /* Zorgt voor scroll op mobiel */ }
 th, td { text-align: left; padding: 12px; border-bottom: 1px solid var(--border); }
 th { color: var(--text-muted); font-size: 12px; text-transform: uppercase; }
 .pill { background: rgba(128,128,128,0.15); padding: 4px 8px; border-radius: 99px; font-size: 12px; font-weight: bold; }
 
 /* Chips */
-.chips { display: flex; gap: 8px; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip { padding: 6px 12px; border-radius: 20px; background: var(--bg-body); cursor: pointer; border: 1px solid var(--border); }
 .chip.active { background: var(--accent); color: #06250f; border-color: var(--accent); font-weight: bold; }
 
@@ -193,23 +252,160 @@ th { color: var(--text-muted); font-size: 12px; text-transform: uppercase; }
   background: var(--accent); color: #06250f;
   padding: 12px 20px; border-radius: 8px; font-weight: bold;
   opacity: 0; pointer-events: none; transition: 0.3s; transform: translateY(10px);
+  z-index: 2000;
 }
 .toast.show { opacity: 1; transform: translateY(0); }
 
-/* --- NIEUW: Promotie & Degradatie lijnen --- */
-tr.promo {
-  background: linear-gradient(90deg, rgba(34,197,94,0.15) 0%, transparent 100%);
-  border-left: 4px solid #22c55e;
-}
+/* STAND KLEUREN */
+tr.promo { background: linear-gradient(90deg, rgba(34,197,94,0.15) 0%, transparent 100%); border-left: 4px solid #22c55e; }
+tr.rele { background: linear-gradient(90deg, rgba(239,68,68,0.15) 0%, transparent 100%); border-left: 4px solid #ef4444; }
+tr.my-club { font-weight: bold; background: rgba(255, 255, 255, 0.1) !important; border: 1px solid #fff; }
 
-tr.rele {
-  background: linear-gradient(90deg, rgba(239,68,68,0.15) 0%, transparent 100%);
-  border-left: 4px solid #ef4444;
-}
+/* PITCH */
+.pitch-container { position: relative; width: 100%; height: 400px; background: #2f855a; border-radius: 8px; margin-top: 20px; border: 2px solid #fff; overflow: hidden; }
+.pitch-line { position: absolute; background: rgba(255,255,255,0.3); }
+.center-line { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+.center-circle { width: 100px; height: 100px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); background: transparent; }
+.box-top { width: 60%; height: 60px; top: 0; left: 20%; border: 2px solid rgba(255,255,255,0.3); border-top: none; }
+.box-bottom { width: 60%; height: 60px; bottom: 0; left: 20%; border: 2px solid rgba(255,255,255,0.3); border-bottom: none; }
 
-/* Zorgt dat je eigen club altijd goed opvalt, ook in een zone */
-tr.my-club {
-  font-weight: bold;
-  background: rgba(255, 255, 255, 0.1) !important; /* Iets feller */
-  border: 1px solid #fff;
+.player-node { position: absolute; transform: translate(-50%, -50%); text-align: center; cursor: pointer; transition: 0.2s; width: 60px; }
+.player-node:hover { transform: translate(-50%, -50%) scale(1.1); z-index: 10; }
+.shirt { width: 30px; height: 30px; background: #ef4444; border-radius: 50%; margin: 0 auto; line-height: 30px; color: white; font-weight: bold; font-size: 12px; border: 2px solid white; }
+.shirt.gk { background: #eab308; }
+.shirt.empty { background: #333; border: 2px dashed #666; color: #666; }
+.player-info { font-size: 10px; background: rgba(0,0,0,0.7); padding: 2px 4px; border-radius: 4px; margin-top: 2px; color: white; white-space: nowrap; }
+
+/* MODAL */
+.modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 3000; }
+.modal-content { background: var(--bg-card); padding: 20px; border-radius: 12px; width: 90%; max-width: 500px; border: 1px solid var(--border); max-height: 80vh; overflow-y: auto; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+.modal-footer { margin-top: 20px; text-align: right; display: flex; justify-content: flex-end; gap: 10px; }
+.player-select-row { display: flex; justify-content: space-between; padding: 8px; border-bottom: 1px dashed var(--border); cursor: pointer; }
+.player-select-row:hover { background: rgba(255,255,255,0.05); }
+.player-select-row.disabled { opacity: 0.5; pointer-events: none; }
+
+/* --- MOBILE RESPONSIVENESS (Dit vervangt je oude blok) --- */
+@media (max-width: 768px) {
+
+  /* 1. Layout draaien */
+  .app-layout {
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* 2. Sidebar wordt Bottom Navigation Bar */
+  .sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 65px;         /* Vaste hoogte */
+    border-right: none;
+    border-top: 1px solid var(--border);
+    background: var(--bg-sidebar);
+    z-index: 1000;
+    
+    /* Reset desktop stijlen */
+    padding: 0;
+    display: flex;
+    flex-direction: row;  /* Horizontaal */
+    align-items: center;
+    
+    /* Scrollen instellen voor mobiel */
+    overflow-y: hidden;
+    overflow-x: auto;     /* Horizontaal swipen */
+  }
+
+  /* Verberg Logo en Footer (Koffie) op mobiel om ruimte te maken */
+  .sidebar .brand, 
+  .sidebar .sidebar-footer {
+    display: none;
+  }
+
+  /* 3. Menu Items horizontaal maken */
+  .nav-links {
+    flex-direction: row;
+    width: 100%;
+    margin: 0;
+    padding: 0 10px;
+    gap: 5px;
+    overflow-y: hidden; /* Reset desktop scroll */
+  }
+
+  .nav-item {
+    min-width: 70px;      /* Zorg dat knoppen niet geplet worden */
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 0;
+    font-size: 10px;
+    text-align: center;
+    border-radius: 4px;
+  }
+
+  .nav-item span {
+    margin-right: 0 !important; /* Icoon boven tekst */
+    font-size: 20px;
+    margin-bottom: 2px;
+  }
+
+  /* 4. Main Content aanpassen */
+  .main-content {
+    height: 100%;
+    overflow-y: auto;           /* Inhoud moet scrollen */
+    padding-bottom: 80px;       /* Extra ruimte onderin voor de balk */
+  }
+
+  .view-container {
+    padding: 15px;
+  }
+
+  /* 5. Header compacter maken */
+  .top-header {
+    height: auto;
+    padding: 15px;
+    flex-direction: column;     /* Onder elkaar */
+    gap: 15px;
+  }
+
+  .stats-group {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .stat-item .label { font-size: 9px; }
+  .stat-item strong { font-size: 14px; }
+
+  .actions-group {
+    width: 100%;
+    display: flex;
+    gap: 10px;
+  }
+
+  .actions-group button {
+    flex: 1;                    /* Knoppen vullen de breedte */
+    padding: 12px;              /* Makkelijker te raken */
+  }
+
+  /* 6. Tabellen fixen op mobiel */
+  .card {
+    overflow-x: auto;
+    margin-bottom: 15px;
+  }
+  
+  table {
+    min-width: 600px;           /* Forceer breedte zodat je kunt scrollen */
+  }
+  
+  /* Veld iets kleiner */
+  .pitch-container {
+    zoom: 0.7;
+  }
 }

@@ -1,6 +1,7 @@
 import { Store } from './store.js';
 import { CONFIG } from './config.js';
 import { UTILS } from './utils.js';
+import { Engine } from './engine.js'; 
 
 export const Views = {
     Welcome() {
@@ -11,26 +12,145 @@ export const Views = {
 
     Dashboard() {
         const d=document.createElement('div');
-        let offersHtml = "";
-        if(Store.state.incomingOffers.length > 0) offersHtml = `<div style="background:rgba(34,197,94,0.15); border:1px solid #22c55e; padding:15px; border-radius:8px; margin-bottom:20px;"><strong>🚨 Je hebt ${Store.state.incomingOffers.length} nieuw(e) bod(en)!</strong><br><span style="font-size:13px">Ga naar Transfermarkt.</span></div>`;
         
-        let sponsorHtml = "";
-        if(Store.state.club.sponsor) sponsorHtml = `<div style="margin-bottom:15px; padding:10px; border-radius:8px; background:rgba(34, 197, 94, 0.1); border:1px solid #22c55e;">Sponsor: <strong>${Store.state.club.sponsor.name}</strong> (+ ${UTILS.fmtMoney(Store.state.club.sponsor.amount)}/wk)</div>`;
-        else sponsorHtml = `<div style="margin-bottom:15px; padding:10px; border-radius:8px; background:rgba(239, 68, 68, 0.1); border:1px solid #ef4444;">⚠️ <strong>Geen sponsor!</strong> Ga snel naar Sponsors om een deal te sluiten.</div>`;
+        // 1. Meldingen
+        const offersLen = Store.state.incomingOffers.length;
+        let offersHtml = offersLen > 0 ? `<div class="card" style="background:rgba(34,197,94,0.1); border-color:#22c55e"><strong>🚨 Je hebt ${offersLen} bod(en)!</strong><br><span style="font-size:13px">Ga naar Transfermarkt.</span></div>` : "";
         
-        let cupHtml = "";
-        if(Store.state.cup && Store.state.cup.active) {
-            const c = Store.state.cup;
-            const status = c.inTournament ? "<span style='color:#22c55e'>Je zit nog in het toernooi!</span>" : "<span style='color:#ef4444'>Uitgeschakeld.</span>";
-            cupHtml = `<div class="card" style="margin-bottom:15px; border-left:4px solid #facc15"><h3>🏆 KNVB Beker</h3><p>${status}</p></div>`;
+        let sponsorHtml = Store.state.club.sponsor 
+            ? `<div class="card" style="background:rgba(34,197,94,0.1); border-color:#22c55e">Sponsor: <strong>${Store.state.club.sponsor.name}</strong> (+ ${UTILS.fmtMoney(Store.state.club.sponsor.amount)}/wk)</div>`
+            : `<div class="card" style="background:rgba(239, 68, 68, 0.1); border-color:#ef4444">⚠️ <strong>Geen sponsor!</strong> Ga snel naar Sponsors om een deal te sluiten.</div>`;
+
+        // 2. Stats Grid (Responsive)
+        const totalOvr = Store.state.team.reduce((sum, p) => sum + p.ovr, 0);
+        const avgOvr = Store.state.team.length > 0 ? Math.round(totalOvr / Store.state.team.length) : 0;
+        
+        const statsGrid = `
+        <div class="responsive-grid">
+            <div class="card" style="margin:0; text-align:center"><div class="muted">Team Rating</div><div style="font-size:24px; font-weight:bold; color:#22c55e">${avgOvr}</div></div>
+            <div class="card" style="margin:0; text-align:center"><div class="muted">Budget</div><div style="font-size:18px; font-weight:bold">${UTILS.fmtMoney(Store.state.club.budget)}</div></div>
+            <div class="card" style="margin:0; text-align:center"><div class="muted">Selectie</div><div style="font-size:24px; font-weight:bold">${Store.state.team.length}</div></div>
+            <div class="card" style="margin:0; text-align:center"><div class="muted">Stadion</div><div style="font-size:24px; font-weight:bold">${Store.state.club.facilities.stadium}</div></div>
+        </div>`;
+
+        // 3. Laatste Resultaat met Tactiek Note
+        const r = Store.state.results.find(x=>x.isYou);
+        let resHTML = `<p class="muted">Nog geen wedstrijd gespeeld.</p>`;
+        
+        if(r) {
+            let noteHtml = r.note ? `<div style="margin-top:5px; font-size:12px; color:#fbbf24;">${r.note}</div>` : "";
+            
+            // Events tonen (max 3 regels)
+            let eventsShort = "";
+            if(r.events && r.events.length > 0) {
+                eventsShort = r.events.slice(0, 3).map(e => `<div style="font-size:11px;color:var(--text-muted)">${e}</div>`).join("");
+                if(r.events.length > 3) eventsShort += `<div style="font-size:10px;color:var(--text-muted)">... +${r.events.length - 3} meer</div>`;
+            }
+
+            resHTML = `
+            <div style="border-left:4px solid #22c55e; padding-left:15px; margin-top:10px">
+                <div style="font-size:20px; font-weight:bold; margin-bottom:5px">
+                    ${r.home} <span style="font-size:24px; color:var(--accent)">${r.score[0]} - ${r.score[1]}</span> ${r.away}
+                </div>
+                ${noteHtml}
+                <div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border)">
+                    ${eventsShort || "<i style='font-size:11px'>Geen hoogtepunten.</i>"}
+                </div>
+            </div>`;
         }
 
-        const r = Store.state.results.find(x=>x.isYou);
-        let resHTML = r ? `<div style="font-size:20px;font-weight:bold;border-left:4px solid #22c55e;padding-left:10px;margin-top:10px">${r.home} ${r.score[0]} - ${r.score[1]} ${r.away}</div>` : `<p class="muted">Nog geen wedstrijd gespeeld.</p>`;
-        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${sponsorHtml}${cupHtml}<div class="card"><p>Welkom bij <strong>${Store.state.club.name}</strong>.</p><hr style="border:0;border-top:1px dashed var(--border);margin:15px 0"><h3>Laatste resultaat</h3>${resHTML}</div>`;
+        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${sponsorHtml}${statsGrid}<div class="card"><h3>Laatste Resultaat</h3>${resHTML}</div>`;
         return d;
     },
-    
+
+    Training() {
+        const d = document.createElement('div');
+        // Zorg dat state bestaat, ook bij oude saves/crashes
+        if(!Store.state.training) Store.state.training = { selected: [], done: false };
+        
+        const t = Store.state.training;
+        const facLvl = Store.state.club.facilities.training;
+        
+        let header = `<h2>Training <span class="badge">Lvl ${facLvl}</span></h2>`;
+        
+        // Status blok
+        let statusHtml = "";
+        if(t.done) {
+            statusHtml = `<div class="card" style="background:rgba(34,197,94,0.1); border-color:#22c55e; text-align:center"><h3>✅ Training Voltooid</h3><p>Volgende week kun je weer trainen.</p></div>`;
+        } else {
+            const count = t.selected.length;
+            const btnClass = count > 0 ? "primary" : "secondary";
+            statusHtml = `<div class="card" style="display:flex; justify-content:space-between; align-items:center">
+                <div><strong>Geselecteerd: ${count} / 3</strong><br><small class="muted">Hoger facility level = meer groei.</small></div>
+                <button class="${btnClass}" onclick="Engine.executeTraining()">Start Training</button>
+            </div>`;
+        }
+
+        // Lijst met spelers
+        let listHtml = `<div class="card"><table><thead><tr><th>Select</th><th>Naam</th><th>Pos</th><th>OVR</th><th>Groei Potentie</th></tr></thead><tbody>`;
+        
+        Store.state.team.forEach(p => {
+            const isSel = t.selected.includes(p.id);
+            const check = isSel ? "✅" : "⬜";
+            const rowStyle = isSel ? "background:rgba(34,197,94,0.1)" : "";
+            
+            // Simpele potentie indicatie op basis van leeftijd
+            let pot = "⭐⭐⭐";
+            if(p.age > 24) pot = "⭐⭐";
+            if(p.age > 29) pot = "⭐";
+
+            listHtml += `<tr style="${rowStyle}; cursor:pointer" onclick="Engine.toggleTrainingSelect('${p.id}')">
+                <td>${check}</td>
+                <td><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td>
+                <td><span class="pill">${p.pos}</span></td>
+                <td><strong>${p.ovr}</strong></td>
+                <td>${pot}</td>
+            </tr>`;
+        });
+        
+        d.innerHTML = header + statusHtml + listHtml + "</tbody></table></div>";
+        return d;
+    },
+
+    Sponsors() {
+        const d = document.createElement('div');
+        if(Store.state.club.sponsor) {
+            let s = Store.state.club.sponsor;
+            d.innerHTML=`<h2>Sponsor</h2><div class="card" style="text-align:center">
+                <h1>${s.name}</h1>
+                <h3>${UTILS.fmtMoney(s.amount)} / week</h3>
+                <p class="muted">Looptijd: nog <strong>${s.weeksLeft}</strong> weken</p>
+                <div style="font-size:40px; margin-top:10px">🤝</div>
+            </div>`;
+        } else {
+            let h = `<h2>Sponsors</h2><p class="muted" style="margin-bottom:20px">Kies een sponsor. Je kunt onderhandelen voor een beter bedrag, maar pas op: ze kunnen weglopen!</p>`;
+            
+            if(Store.state.club.sponsorOffers.length === 0) {
+                h += `<div class="card">Geen aanbiedingen momenteel.</div>`;
+            } else {
+                Store.state.club.sponsorOffers.forEach(o => {
+                    const negotiatedClass = o.negotiated ? "disabled" : "secondary";
+                    const negAction = o.negotiated ? "" : `onclick="Engine.negotiateSponsor('${o.id}', 'negotiate')"`;
+                    const negText = o.negotiated ? "Onderhandeld" : "Onderhandel (+)";
+
+                    h += `<div class="card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
+                        <div>
+                            <strong>${o.name}</strong><br>
+                            <span style="font-size:18px; color:var(--accent); font-weight:bold">${UTILS.fmtMoney(o.amount)}</span> / week<br>
+                            <span class="muted">${o.duration} weken</span>
+                        </div>
+                        <div style="display:flex; gap:5px">
+                            <button class="${negotiatedClass}" ${negAction} style="font-size:12px">${negText}</button>
+                            <button class="primary" onclick="Engine.negotiateSponsor('${o.id}', 'accept')">Teken</button>
+                        </div>
+                    </div>`;
+                });
+            }
+            d.innerHTML = h;
+        } 
+        return d; 
+    },
+
     Cup() {
         const d = document.createElement('div');
         const c = Store.state.cup;
@@ -42,39 +162,19 @@ export const Views = {
         return d;
     },
 
-    Sponsors() {
+    Squad() {
         const d=document.createElement('div');
-        if(Store.state.club.sponsor) {
-            let s = Store.state.club.sponsor;
-            d.innerHTML=`<h2>Sponsor</h2><div class="card" style="text-align:center"><h1>${s.name}</h1><h3>${UTILS.fmtMoney(s.amount)} / week</h3><p class="muted">Looptijd: nog <strong>${s.weeksLeft}</strong> weken</p></div>`;
-        } else {
-            let h=`<h2>Sponsors</h2><div class="card">`;
-            Store.state.club.sponsorOffers.forEach(o=>{h+=`<div style="display:flex;justify-content:space-between;padding:10px;border-bottom:1px solid var(--border)"><div><strong>${o.name}</strong><br>${UTILS.fmtMoney(o.amount)}<br><span class="muted">${o.duration} weken</span></div><button class="primary" onclick="Engine.signSponsor('${o.id}')">Teken</button></div>`});
-            d.innerHTML=h+`</div>`;
-        } 
-        return d; 
-    },
-
-Squad() {
-        const d=document.createElement('div');
-        // Extra header: Con (Contract)
-        let h=`<h2>Jouw Selectie</h2><div class="card"><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Con</th><th>Waarde</th><th>Actie</th></tr></thead><tbody>`;
+        let h=`<h2>Jouw Selectie</h2><div class="card"><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th title="Aanval">AAN</th><th title="Verdediging">VER</th><th title="Snelheid">SNL</th><th>Con</th><th>Waarde</th><th>Actie</th></tr></thead><tbody>`;
         
         Store.state.team.forEach(p=>{
             let c = p.ovr>=70 ? "color:#22c55e" : "";
-            
-            // Contract kleur logic
             let conColor = "";
-            let conText = `${p.contract} wkn`;
+            let conText = `${p.contract || '?'} wkn`;
             if(p.contract <= 5) { conColor = "color:#ef4444; font-weight:bold"; conText += " ⚠️"; }
             else if(p.contract <= 10) { conColor = "color:#facc15"; }
 
             const onList = Store.state.transferList.includes(p.id);
-            
-            // We maken een dropdown-achtige actie kolom of gewoon twee kleine knoppen
-            // Om ruimte te besparen: Als contract < 10 weken is, toon "Verleng" knop. Anders "Verkoop" knop.
             let btnAction = "";
-            
             if(p.contract <= 10) {
                  btnAction = `<button class="primary btn-extend" data-id="${p.id}" style="font-size:10px; padding:4px 6px">✍️ Verleng</button>`;
             } else {
@@ -87,17 +187,35 @@ Squad() {
                 <td><span class="pill">${p.pos}</span></td>
                 <td><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td>
                 <td style="${c};font-weight:bold">${p.ovr}</td>
+                <td class="muted" style="font-size:13px">${p.att || '-'}</td>
+                <td class="muted" style="font-size:13px">${p.def || '-'}</td>
+                <td class="muted" style="font-size:13px">${p.spd || '-'}</td>
                 <td style="${conColor}">${conText}</td>
                 <td class="money">${UTILS.fmtMoney(p.value)}</td>
                 <td>${btnAction}</td>
             </tr>`;
         });
-        d.innerHTML=h+`</tbody></table><p class="muted" style="font-size:12px; margin-top:10px">* Spelers met < 10 weken contract kun je verlengen. Als het contract op 0 komt, vertrekken ze gratis.</p></div>`;
+        d.innerHTML=h+`</tbody></table><p class="muted" style="font-size:12px; margin-top:10px">* Spelers met < 10 weken contract kun je verlengen.</p></div>`;
         return d;
     },
 
     TransferMarket() {
         const d=document.createElement('div');
+        const isOpen = Engine.isTransferWindowOpen();
+        const statusColor = isOpen ? "#22c55e" : "#ef4444";
+        const statusText = isOpen ? "OPEN" : "GESLOTEN (Open: Week 1-6 & 17-22)";
+
+        let header = `<h2>Transfermarkt <span class="badge" style="background:${statusColor};color:white;font-size:12px;vertical-align:middle;margin-left:10px">${statusText}</span></h2>`;
+
+        if(!isOpen) {
+            d.innerHTML = header + `<div class="card" style="text-align:center; padding:40px; color:var(--text-muted)">
+                <div style="font-size:40px; margin-bottom:10px">🔒</div>
+                <h3>De transfermarkt is gesloten.</h3>
+                <p>Je kunt alleen spelers kopen en verkopen tijdens de zomer- en winterstop.</p>
+            </div>`;
+            return d;
+        }
+
         let offersHtml = "";
         if(Store.state.incomingOffers.length > 0) {
             offersHtml += `<h3>📩 Binnenkomende Biedingen</h3><div class="card">`;
@@ -112,7 +230,8 @@ Squad() {
             marketHtml+=`<tr><td><span class="pill">${p.pos}</span></td><td><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td><td style="${c};font-weight:bold">${p.ovr}</td><td class="money">${UTILS.fmtMoney(min)} - ${UTILS.fmtMoney(max)}</td><td><button class="primary btn-bid" data-id="${p.id}">Bied</button></td></tr>`;
         });
         marketHtml+=`</tbody></table></div>`;
-        d.innerHTML = `<h2>Transfermarkt</h2>` + offersHtml + marketHtml;
+        
+        d.innerHTML = header + offersHtml + marketHtml;
         return d;
     },
 
@@ -174,8 +293,35 @@ Squad() {
         return d; 
     },
 
-    Fixtures() { const d=document.createElement('div'); let h=`<h2>Uitslagen</h2><div class="card"><table>`; if(Store.state.results.length===0)h+="<p class='muted'>Geen data</p>"; else Store.state.results.forEach(r=>{h+=`<tr><td align="right">${r.home}</td><td align="center"><b>${r.score[0]}-${r.score[1]}</b></td><td>${r.away}</td></tr>`}); d.innerHTML=h+`</table></div>`; return d; },
+    Fixtures() { 
+        const d=document.createElement('div'); 
+        let h=`<h2>Uitslagen</h2><div class="card">`; 
+        
+        if(Store.state.results.length===0) h+="<p class='muted'>Geen data</p>"; 
+        else {
+            Store.state.results.forEach(r => {
+                let details = "";
+                // Events en/of tactiek note tonen
+                if(r.note) details += `<div style="color:#fbbf24; font-size:11px; margin-bottom:4px;">${r.note}</div>`;
+                if(r.events) details += r.events.map(e => `<span style="display:inline-block; margin-right:10px; font-size:11px; color:#aaa; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;">${e}</span>`).join(" ");
+                
+                h+=`<div style="border-bottom:1px solid var(--border); padding:10px 0;">
+                    <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:5px;">
+                        <span>${r.home}</span>
+                        <span style="font-size:16px; color:var(--accent)">${r.score[0]}-${r.score[1]}</span>
+                        <span>${r.away}</span>
+                    </div>
+                    <div style="line-height:1.4">${details}</div>
+                </div>`;
+            });
+        }
+        
+        d.innerHTML=h+`</div>`; 
+        return d; 
+    },
+
     Finance() { const d=document.createElement('div'); const f=Store.state.finance.lastWeek; let l=""; f.breakdown.forEach(x=>l+=`<div style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--border);padding:5px 0"><span>${x.txt}</span><span style="color:${x.amt>=0?'#22c55e':'#ef4444'}">${UTILS.fmtMoney(x.amt)}</span></div>`); d.innerHTML=`<h2>Financiën</h2><div class="card"><h3 style="text-align:center;margin-bottom:20px">${UTILS.fmtMoney(Store.state.club.budget)}</h3><h4>Weekrapport</h4>${l}<div style="display:flex;justify-content:space-between;margin-top:10px;font-weight:bold;font-size:18px"><span>Totaal</span><span style="color:${f.profit>=0?'#22c55e':'#ef4444'}">${UTILS.fmtMoney(f.profit)}</span></div></div>`; return d; },
+
     History() {
         const d = document.createElement('div');
         const hist = Store.state.history || [];
@@ -185,21 +331,23 @@ Squad() {
             content = `<div class="card" style="text-align:center; padding:30px;"><span style="font-size:40px">📜</span><h3>Nog geen historie</h3><p class="muted">Speel een seizoen uit om hier data te zien.</p></div>`;
         } else {
             let rows = "";
-            // Sorteer op seizoen (nieuwste bovenaan)
             [...hist].reverse().forEach(h => {
                 let badgeColor = h.result === "Promotie" ? "#22c55e" : (h.result === "Degradatie" ? "#ef4444" : "#facc15");
+                let cupTxt = h.cup || "-"; 
+                
                 rows += `<tr>
                     <td>Seizoen ${h.season}</td>
                     <td>Divisie ${h.division}</td>
                     <td># ${h.rank}</td>
                     <td>${h.points}</td>
                     <td><span class="badge" style="background:${badgeColor}; color:#000">${h.result}</span></td>
+                    <td><strong>${cupTxt}</strong></td> 
                 </tr>`;
             });
-            content = `<div class="card"><table><thead><tr><th>Seizoen</th><th>Competitie</th><th>Positie</th><th>Punten</th><th>Resultaat</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+            content = `<div class="card"><table><thead><tr><th>Seizoen</th><th>Divisie</th><th>Pos</th><th>Pt</th><th>Res</th><th>Beker</th></tr></thead><tbody>${rows}</tbody></table></div>`;
         }
         
         d.innerHTML = `<h2>🏆 Hall of Fame</h2>${content}`;
         return d;
-    },
+    }
 };

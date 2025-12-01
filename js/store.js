@@ -28,6 +28,11 @@ export const Store = {
                 // 1. Merge de basis state
                 this.state = { ...this.state, ...parsed };
 
+                // NIEUW: Training state toevoegen aan bestaande saves
+                if(!this.state.training) {
+                    this.state.training = { selected: [], done: false };
+                }
+
                 // --- DATA MIGRATIE ---
                 const upgradePlayer = (p) => {
                     // 1. Stats fix (uit vorige update)
