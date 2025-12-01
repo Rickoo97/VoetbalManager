@@ -16,14 +16,34 @@ export const Engine = {
         return (d >= 1 && d <= 6) || (d >= 17 && d <= 22);
     },
     
-    createPlayer(posOverride, ageOverride) { 
+createPlayer(posOverride, ageOverride) { 
         const pos = posOverride || UTILS.choice(CONFIG.positions); 
         const age = ageOverride || UTILS.rand(16,35);
+        
+        // --- STAP 1: KIES NATIONALITEIT ---
+        // 60% kans op Nederland (NL), 40% kans op willekeurig ander land
+        const allNations = Object.keys(CONFIG.nations); // ["NL", "BE", "DE", ...]
+        let code = "NL";
+
+        if(Math.random() > 0.60) {
+            // Kies een random land dat NIET NL is
+            const foreign = allNations.filter(k => k !== "NL");
+            code = UTILS.choice(foreign);
+        }
+
+        // Haal de data op uit config (vlag en namenlijsten)
+        const nationData = CONFIG.nations[code];
+        
+        // --- STAP 2: KIES NAAM ---
+        const firstName = UTILS.choice(nationData.first);
+        const lastName = UTILS.choice(nationData.last);
+        const fullName = `${firstName} ${lastName}`;
+        
+        // --- STAP 3: GENERATE STATS (ongewijzigd) ---
         let base = 40;
         if(age > 22) base = 55;
         if(age > 28) base = 60;
         
-        // Genereer specifieke stats
         let att, def, spd;
         const rand = (min, max) => base + UTILS.rand(min, max);
 
@@ -43,7 +63,14 @@ export const Engine = {
         const wage = Math.round(val/250); 
         const contract = UTILS.rand(20, 50);
 
-        return { id: UTILS.rid(), name: UTILS.genName(), age, pos, ovr, att, def, spd, value: val, wage, contract: contract }; 
+        // --- STAP 4: RETURN OBJECT MET VLAG ---
+        return { 
+            id: UTILS.rid(), 
+            name: fullName,     // De gekozen naam
+            nat: code,          // De landcode (bijv "NL")
+            flag: nationData.flag, // De emoji vlag (bijv "🇳🇱")
+            age, pos, ovr, att, def, spd, value: val, wage, contract 
+        }; 
     },
 
     // --- NIEUW: TACTIEK SYSTEEM ---

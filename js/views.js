@@ -99,9 +99,12 @@ export const Views = {
             if(p.age > 24) pot = "⭐⭐";
             if(p.age > 29) pot = "⭐";
 
+            // VLAG UPDATE
+            const flag = p.flag || ""; 
+
             listHtml += `<tr style="${rowStyle}; cursor:pointer" onclick="Engine.toggleTrainingSelect('${p.id}')">
                 <td>${check}</td>
-                <td><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td>
+                <td><span style="margin-right:5px">${flag}</span><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td>
                 <td><span class="pill">${p.pos}</span></td>
                 <td><strong>${p.ovr}</strong></td>
                 <td>${pot}</td>
@@ -183,9 +186,12 @@ export const Views = {
                  btnAction = `<button class="${btnClass} btn-list" data-id="${p.id}" style="font-size:10px; padding:4px 6px">${btnLabel}</button>`;
             }
 
+            // VLAG UPDATE
+            const flag = p.flag || "";
+
             h+=`<tr>
                 <td><span class="pill">${p.pos}</span></td>
-                <td><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td>
+                <td><span style="margin-right:5px; font-size:1.2em; vertical-align:middle">${flag}</span><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td>
                 <td style="${c};font-weight:bold">${p.ovr}</td>
                 <td class="muted" style="font-size:13px">${p.att || '-'}</td>
                 <td class="muted" style="font-size:13px">${p.def || '-'}</td>
@@ -219,7 +225,13 @@ export const Views = {
         let offersHtml = "";
         if(Store.state.incomingOffers.length > 0) {
             offersHtml += `<h3>📩 Binnenkomende Biedingen</h3><div class="card">`;
-            Store.state.incomingOffers.forEach(o => { offersHtml += `<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed var(--border); padding:10px 0;"><div><span class="muted">Club:</span> <strong>${o.club}</strong><br><span class="muted">Speler:</span> <strong>${o.playerName}</strong><br><span class="muted">Bod:</span> <span style="color:#22c55e; font-weight:bold">${UTILS.fmtMoney(o.amount)}</span></div><div style="display:flex; gap:5px;"><button class="primary btn-acc" data-id="${o.id}">✅</button><button class="danger btn-rej" data-id="${o.id}">❌</button></div></div>`; });
+            Store.state.incomingOffers.forEach(o => { 
+                // VLAG UPDATE VOOR BIEDINGEN (Ophalen uit eigen team)
+                const pRef = Store.state.team.find(x => x.id === o.playerId);
+                const flag = pRef && pRef.flag ? pRef.flag : "";
+
+                offersHtml += `<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed var(--border); padding:10px 0;"><div><span class="muted">Club:</span> <strong>${o.club}</strong><br><span class="muted">Speler:</span> ${flag} <strong>${o.playerName}</strong><br><span class="muted">Bod:</span> <span style="color:#22c55e; font-weight:bold">${UTILS.fmtMoney(o.amount)}</span></div><div style="display:flex; gap:5px;"><button class="primary btn-acc" data-id="${o.id}">✅</button><button class="danger btn-rej" data-id="${o.id}">❌</button></div></div>`; 
+            });
             offersHtml += `</div>`;
         } else { offersHtml = `<div class="card" style="padding:15px; text-align:center; color:#aaa">Geen openstaande biedingen.</div>`; }
 
@@ -227,7 +239,11 @@ export const Views = {
         Store.state.market.forEach(p=>{
             let c=p.ovr>=70?"color:#22c55e":"";
             const min = Math.round(p.value * 0.9); const max = Math.round(p.value * 1.3);
-            marketHtml+=`<tr><td><span class="pill">${p.pos}</span></td><td><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td><td style="${c};font-weight:bold">${p.ovr}</td><td class="money">${UTILS.fmtMoney(min)} - ${UTILS.fmtMoney(max)}</td><td><button class="primary btn-bid" data-id="${p.id}">Bied</button></td></tr>`;
+            
+            // VLAG UPDATE VOOR MARKT
+            const flag = p.flag || "";
+
+            marketHtml+=`<tr><td><span class="pill">${p.pos}</span></td><td><span style="margin-right:5px; font-size:1.2em; vertical-align:middle">${flag}</span><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td><td style="${c};font-weight:bold">${p.ovr}</td><td class="money">${UTILS.fmtMoney(min)} - ${UTILS.fmtMoney(max)}</td><td><button class="primary btn-bid" data-id="${p.id}">Bied</button></td></tr>`;
         });
         marketHtml+=`</tbody></table></div>`;
         
@@ -243,7 +259,11 @@ export const Views = {
         if(Store.state.youthAcademy.length === 0) { listHtml = `<p class="muted">Geen talenten. Stuur de scout op pad!</p>`; } 
         else {
             listHtml = `<table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Actie</th></tr></thead><tbody>`;
-            Store.state.youthAcademy.forEach(p => { listHtml += `<tr><td>${p.pos}</td><td><strong>${p.name}</strong> (${p.age} jr)</td><td>${p.ovr}</td><td><button class="primary btn-sign" data-id="${p.id}">Contract (€ 5.000)</button></td></tr>`; });
+            Store.state.youthAcademy.forEach(p => { 
+                // VLAG UPDATE
+                const flag = p.flag || "";
+                listHtml += `<tr><td>${p.pos}</td><td><span style="margin-right:5px">${flag}</span><strong>${p.name}</strong> (${p.age} jr)</td><td>${p.ovr}</td><td><button class="primary btn-sign" data-id="${p.id}">Contract (€ 5.000)</button></td></tr>`; 
+            });
             listHtml += `</tbody></table>`;
         }
         d.innerHTML = `<h2>Jeugdopleiding</h2><div class="card" style="display:flex; justify-content:space-between; align-items:center"><div><h3>Hoofd Scout</h3><div class="muted">Kost per sessie: <strong>€ 25.000</strong></div></div><button class="primary" id="btn-scout">🔎 Scout Talent</button></div><h3>Gescout Talent</h3><div class="card">${listHtml}</div>`;
