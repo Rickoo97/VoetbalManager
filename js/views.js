@@ -65,12 +65,23 @@ export const Views = {
 
     Training() {
         const d = document.createElement('div');
-        // Zorg dat state bestaat, ook bij oude saves/crashes
         if(!Store.state.training) Store.state.training = { selected: [], done: false };
         
         const t = Store.state.training;
         const facLvl = Store.state.club.facilities.training;
         
+        // Bepaal max slots voor weergave
+        let maxSlots = 2;
+        let potentialTxt = "+0 of +1";
+        
+        if(facLvl >= 2) maxSlots = 3;
+        if(facLvl >= 3) potentialTxt = "+0 tot +2"; // Bij lvl 3 kan je +2 krijgen
+        if(facLvl >= 4) maxSlots = 4;
+        if(facLvl >= 5) potentialTxt = "+1 tot +2"; // Bij lvl 5 altijd groei
+        
+        // Correctie voor tekst lvl 2 (is nog steeds +0/+1 maar wel 3 slots)
+        if(facLvl === 2) potentialTxt = "+0 of +1";
+
         let header = `<h2>Training <span class="badge">Lvl ${facLvl}</span></h2>`;
         
         // Status blok
@@ -80,8 +91,11 @@ export const Views = {
         } else {
             const count = t.selected.length;
             const btnClass = count > 0 ? "primary" : "secondary";
-            statusHtml = `<div class="card" style="display:flex; justify-content:space-between; align-items:center">
-                <div><strong>Geselecteerd: ${count} / 3</strong><br><small class="muted">Hoger facility level = meer groei.</small></div>
+            statusHtml = `<div class="card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
+                <div>
+                    <strong>Geselecteerd: ${count} / ${maxSlots}</strong><br>
+                    <small class="muted">Verwachte groei: ${potentialTxt}</small>
+                </div>
                 <button class="${btnClass}" onclick="Engine.executeTraining()">Start Training</button>
             </div>`;
         }
@@ -94,12 +108,10 @@ export const Views = {
             const check = isSel ? "✅" : "⬜";
             const rowStyle = isSel ? "background:rgba(34,197,94,0.1)" : "";
             
-            // Simpele potentie indicatie op basis van leeftijd
             let pot = "⭐⭐⭐";
             if(p.age > 24) pot = "⭐⭐";
             if(p.age > 29) pot = "⭐";
 
-            // VLAG UPDATE
             const flag = p.flag || ""; 
 
             listHtml += `<tr style="${rowStyle}; cursor:pointer" onclick="Engine.toggleTrainingSelect('${p.id}')">

@@ -277,6 +277,7 @@ createPlayer(posOverride, ageOverride) {
         Store.state.club.budget += offer.amount;
         Store.state.team.splice(pIndex, 1); Store.state.incomingOffers.splice(oIdx, 1);
         const tlIdx = Store.state.transferList.indexOf(offer.playerId); if(tlIdx > -1) Store.state.transferList.splice(tlIdx, 1);
+        Store.state.training.selected = Store.state.training.selected.filter(id => id !== p.id);
         Store.save(); UI.render(); alert(`🤝 DEAL!\n\n${p.name} verkocht aan ${offer.club} voor ${UTILS.fmtMoney(offer.amount)}.`);
     },
 
@@ -458,6 +459,12 @@ processMatchday() {
             alert(`⚠️ CONTRACT VERLOPEN!\n\nDe volgende spelers hebben de club transfervrij verlaten:\n- ${leavingPlayers.join("\n- ")}`);
         }
 
+        // --- BUGFIX: TRAINING OPSCHONEN ---
+        // Verwijder spelers uit de trainingslijst die niet meer in het team zitten
+        Store.state.training.selected = Store.state.training.selected.filter(id => 
+            Store.state.team.some(p => p.id === id)
+        );
+
         // 5. Financiën (Salaris & Onderhoud)
         const wages = Store.state.team.reduce((sum, p) => sum + p.wage, 0);
         const maint = (Store.state.club.facilities.stadium * 1000) + (Store.state.club.facilities.training * 800) + (Store.state.club.facilities.medical * 1500);
@@ -591,17 +598,24 @@ simulateTransfers() {
     toggleTrainingSelect(id) {
         if(Store.state.training.done) return UI.toast("Training voor deze week is al gedaan!");
         
+        const lvl = Store.state.club.facilities.training;
+        
+        // BEPAAL HET MAX AANTAL SLOTS OP BASIS VAN LEVEL
+        let maxSlots = 2; // Level 1 (basis)
+        if(lvl >= 2) maxSlots = 3; // Level 2 & 3
+        if(lvl >= 4) maxSlots = 4; // Level 4 & 5+
+
         const sel = Store.state.training.selected;
         if(sel.includes(id)) {
             // Deselecteer
             Store.state.training.selected = sel.filter(x => x !== id);
         } else {
-            // Selecteer (max 3)
-            if(sel.length >= 3) return UI.toast("Max 3 spelers selecteren!");
+            // Selecteer (met variabele max)
+            if(sel.length >= maxSlots) return UI.toast(`Max ${maxSlots} spelers selecteren op dit niveau!`);
             sel.push(id);
         }
         Store.save();
-        UI.render(); // Ververs scherm om vinkje te tonen
+        UI.render(); 
     },
 
     executeTraining() {
@@ -609,28 +623,39 @@ simulateTransfers() {
         if(t.done) return;
         if(t.selected.length === 0) return UI.toast("Selecteer eerst spelers.");
 
-        // Formule: Trainingslevel bepaalt hoeveel ze groeien
-        // Level 1 = 1 punt, Level 8 = max 3 punten erbij
-        const facilityLvl = Store.state.club.facilities.training;
-        
+        const lvl = Store.state.club.facilities.training;
         let report = [];
 
         t.selected.forEach(pid => {
             const p = Store.state.team.find(x => x.id === pid);
             if(p) {
-                // Bereken groei
-                const growth = 1 + Math.floor(Math.random() * (facilityLvl / 3)); 
-                
-                // Update stats
-                p.att = Math.min(99, p.att + growth);
-                p.def = Math.min(99, p.def + growth);
-                p.spd = Math.min(99, p.spd + growth);
-                // Herbereken OVR
-                p.ovr = Math.round((p.att + p.def + p.spd) / 3);
-                // Waarde stijgt mee
-                p.value = Math.round(p.ovr * p.ovr * 25);
+                // --- NIEUWE GROEI LOGICA ---
+                let min = 0;
+                let max = 0;
 
-                report.push(`${p.name} (+${growth})`);
+                if (lvl === 1) { min = 0; max = 1; }       // Lvl 1: +0 of +1
+                else if (lvl === 2) { min = 0; max = 1; }  // Lvl 2: +0 of +1
+                else if (lvl === 3) { min = 0; max = 2; }  // Lvl 3: +0, +1 of +2
+                else if (lvl === 4) { min = 0; max = 2; }  // Lvl 4: +0, +1 of +2
+                else if (lvl >= 5)  { min = 1; max = 2; }  // Lvl 5: +1 of +2 (Altijd groei)
+
+                // Formule voor random getal tussen min en max (inclusief)
+                const growth = Math.floor(Math.random() * (max - min + 1)) + min;
+                
+                if(growth > 0) {
+                    // Update stats
+                    p.att = Math.min(99, p.att + growth);
+                    p.def = Math.min(99, p.def + growth);
+                    p.spd = Math.min(99, p.spd + growth);
+                    // Herbereken OVR
+                    p.ovr = Math.round((p.att + p.def + p.spd) / 3);
+                    // Waarde stijgt mee
+                    p.value = Math.round(p.ovr * p.ovr * 25);
+                    
+                    report.push(`${p.name} (+${growth})`);
+                } else {
+                    report.push(`${p.name} (+0)`);
+                }
             }
         });
 
