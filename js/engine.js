@@ -4,7 +4,28 @@ import { Store } from './store.js';
 import { UI } from './ui.js'; 
 
 export const Engine = {
-    generateSquad(n) { let s=[]; for(let i=0;i<n;i++) s.push(this.createPlayer(i<2?"DM":null)); return s.sort((a,b)=>b.ovr-a.ovr); },
+    generateSquad(n) { 
+        let s=[]; 
+        // Maak standaard spelers
+        for(let i=0;i<n;i++) s.push(this.createPlayer(i<2?"DM":null)); 
+        
+        // NERF: Verzwak dit team omdat het een startende club in Div 5 is
+        s.forEach(p => {
+            // Trek willekeurig 5 tot 12 punten van alle stats af
+            const penalty = 5 + Math.floor(Math.random() * 8);
+            
+            p.att = Math.max(10, p.att - penalty);
+            p.def = Math.max(10, p.def - penalty);
+            p.spd = Math.max(10, p.spd - penalty);
+            
+            // Herbereken OVR en Waarde
+            p.ovr = Math.round((p.att + p.def + p.spd) / 3);
+            p.value = Math.round(p.ovr * p.ovr * 25);
+            p.wage = Math.round(p.value / 250);
+        });
+
+        return s.sort((a,b)=>b.ovr-a.ovr); 
+    },
     generateMarket(n) { let s=[]; for(let i=0;i<n;i++) s.push(this.createPlayer()); return s.sort((a,b)=>b.ovr-a.ovr); },
 
     isYouthTeam(name) {
@@ -213,27 +234,86 @@ createPlayer(posOverride, ageOverride) {
         Store.save(); UI.render(); UI.toast(`${p.name} getekend!`);
     },
 
-    placeBid(id) {
-        // --- NIEUW: Check Transfer Window ---
+placeBid(id) {
+        // 1. Check Transfer Window
         if(!this.isTransferWindowOpen()) {
             return UI.toast("⛔ Markt gesloten! Wacht tot zomer/winter.");
         }
-        // ------------------------------------
         
         const p = Store.state.market.find(x=>x.id===id); if(!p) return;
+        const myDiv = Store.state.club.division; // Jouw divisie (bijv. 5)
+
+        // --- NIEUW: AMBITIE & REALISME CHECK ---
+        
+        // Stap A: Bepaal welk niveau de speler heeft (in welke divisie hoort hij thuis?)
+        let playerLevelDiv = 5; 
+        if(p.ovr >= 78) playerLevelDiv = 1;      // Eredivisie ster
+        else if(p.ovr >= 72) playerLevelDiv = 2; // KKD / Onderkant Eredivisie
+        else if(p.ovr >= 65) playerLevelDiv = 3; // Divisie 3 topper
+        else if(p.ovr >= 55) playerLevelDiv = 4; // Divisie 4
+        
+        // Stap B: Bereken het verschil (Gap)
+        // Als jij Div 5 bent en speler hoort in Div 1, is de gap 4 (groot verschil)
+        // Als jij Div 1 bent en speler hoort in Div 2, is de gap -1 (jij bent beter, speler wil graag)
+        const gap = myDiv - playerLevelDiv; 
+
+        // Stap C: De Leeftijdsfactor
+        // Jongeren (t/m 23) zijn arrogant/ambitieus. Ouderen (30+) zijn chill.
+        let refusalReason = null;
+
+        if (gap > 0) { // Jij speelt lager dan het niveau van de speler
+            if (p.age <= 23) {
+                // JONGE TALENTEN: Accepteren maximaal 1 divisie lager, anders weigeren ze.
+                if(gap > 1) refusalReason = `⛔ "Ik ben ${p.age} en heb veel talent (${p.ovr}). Ik ga mijn carrière niet vergooien in Divisie ${myDiv}!"`;
+            } 
+            else if (p.age >= 30) {
+                // OUDEREN: Accepteren bijna alles, zolang je betaalt.
+                // Geen weigering, ze willen gewoon cashen en spelen.
+            } 
+            else {
+                // PRIME LEEFTIJD (24-29): Accepteren maximaal 2 divisies lager.
+                if(gap > 2) refusalReason = `⛔ "Ik ben in de kracht van mijn leven. Divisie ${myDiv} is echt een stap te ver terug."`;
+            }
+        }
+
+        // Als de speler weigert, stop de functie en toon bericht
+        if (refusalReason) {
+            alert(refusalReason);
+            return;
+        }
+
+        // --- EINDE NIEUWE CHECK (Hieronder de normale geld-logica) ---
+
         const minV = Math.round(p.value * 0.9); const maxV = Math.round(p.value * 1.3);
-        const ask = prompt(`Marktwaarde: ${UTILS.fmtMoney(minV)} - ${UTILS.fmtMoney(maxV)}\nDoe een bod op ${p.name}:`, p.value);
+        const ask = prompt(`Marktwaarde: ${UTILS.fmtMoney(minV)} - ${UTILS.fmtMoney(maxV)}\nDoe een bod op ${p.name} (${p.age}jr, OVR ${p.ovr}):`, p.value);
         if(!ask) return;
         const bid = parseInt(ask);
         if(isNaN(bid)) return UI.toast("Ongeldig bedrag");
         if(Store.state.club.budget < bid) return UI.toast("Onvoldoende budget!");
-        const required = Math.round(p.value * (0.95 + Math.random()*0.3)); 
+        
+        // Oudere spelers zijn soms goedkoper over te halen, jongere spelers duurder
+        let greedFactor = 0.95 + (Math.random() * 0.3);
+        if(p.age < 23) greedFactor += 0.1; // Jong talent is duurder
+        if(p.age > 32) greedFactor -= 0.1; // Oude rot is goedkoper
+
+        const required = Math.round(p.value * greedFactor); 
+
         if(bid >= required) {
             if(Store.state.team.length >= 30) return UI.toast("Selectie is vol!");
+            
+            // Succes bericht aanpassen op basis van leeftijd
+            let welcomeMsg = "";
+            if(p.age > 30 && gap > 0) welcomeMsg = `👴 "Ik kom graag mijn ervaring delen in Divisie ${myDiv}."`;
+            else if(p.age < 23) welcomeMsg = `👶 "Bedankt voor de kans, ik ga vlammen!"`;
+            else welcomeMsg = `🤝 "De deal is rond."`;
+
             Store.state.club.budget -= bid;
             Store.state.team.push(p); Store.state.market = Store.state.market.filter(x=>x.id !== id);
-            Store.save(); UI.render(); alert(`✅ BOD GEACCEPTEERD!\n\n${p.name} komt naar jouw club.`);
-        } else { alert(`❌ BOD GEWEIGERD.\n\nDe club wil minstens ${UTILS.fmtMoney(required)}.`); }
+            Store.save(); UI.render(); 
+            alert(`✅ BOD GEACCEPTEERD!\n\n${welcomeMsg}\n\n${p.name} is speler van ${Store.state.club.name}.`);
+        } else { 
+            alert(`❌ BOD GEWEIGERD.\n\nDe club (en zaakwaarnemer) willen minstens ${UTILS.fmtMoney(required)}.`); 
+        }
     },
     
     extendContract(id) {
@@ -317,17 +397,22 @@ createPlayer(posOverride, ageOverride) {
         for(let d=1; d<=5; d++){ 
             let teams = []; 
             
-            // Echte competities (Div 1 & 2)
             if(CONFIG.realLeagues[d]) {
                 CONFIG.realLeagues[d].forEach(n => {
-                    // Ajax, PSV, etc krijgen nu een vast ID
-                    teams.push(mkTeam(n, d===1?80:70, true));
+                    // Echte clubs (Div 1 & 2) iets sterker maken
+                    teams.push(mkTeam(n, d===1?82:74, true)); 
                 });
             } else {
-                // Fictieve competities (Div 3, 4, 5) - vul aan tot 18 teams voor balans
+                // Fictieve competities (Div 3, 4, 5) - MOEILIJKER GEMAAKT
                 const size = 18; 
+                // Oude formule: 90 - (d*10)  --> Div 5 was 40
+                // Nieuwe formule: Div 3=65, Div 4=58, Div 5=52
+                const baseStr = 85 - (d * 7); 
+                
                 for(let i=0; i<size; i++) {
-                    teams.push(mkTeam(UTILS.genClubName(), 90-(d*10), false));
+                    // We voegen variatie toe: sommige teams zijn 55, anderen 49
+                    const strength = baseStr + UTILS.rand(-4, 4);
+                    teams.push(mkTeam(UTILS.genClubName(), strength, false));
                 }
             }
             comps[d] = teams; 

@@ -10,7 +10,7 @@ export const Views = {
         return d;
     },
 
-    Dashboard() {
+Dashboard() {
         const d=document.createElement('div');
         
         // 1. Meldingen
@@ -21,7 +21,46 @@ export const Views = {
             ? `<div class="card" style="background:rgba(34,197,94,0.1); border-color:#22c55e">Sponsor: <strong>${Store.state.club.sponsor.name}</strong> (+ ${UTILS.fmtMoney(Store.state.club.sponsor.amount)}/wk)</div>`
             : `<div class="card" style="background:rgba(239, 68, 68, 0.1); border-color:#ef4444">⚠️ <strong>Geen sponsor!</strong> Ga snel naar Sponsors om een deal te sluiten.</div>`;
 
-        // 2. Stats Grid (Responsive)
+        // --- CONTRACT ALERTS (Met Leeftijd & OVR) ---
+        const expiring = Store.state.team
+            .filter(p => p.contract <= 10)
+            .sort((a,b) => a.contract - b.contract);
+
+        let contractHtml = "";
+        
+        if(expiring.length > 0) {
+            let rows = "";
+            expiring.forEach(p => {
+                const flag = p.flag || "";
+                const color = p.contract <= 5 ? "#ef4444" : "#facc15"; 
+                const urgentie = p.contract <= 5 ? "⚠️" : "⏳";
+                
+                // OVR kleur groen maken als hij goed is (70+)
+                const ovrColor = p.ovr >= 70 ? "#22c55e" : "inherit";
+
+                rows += `
+                <tr style="border-bottom:1px dashed var(--border)">
+                    <td style="padding:8px 0;">${urgentie} <span style="margin:0 5px">${flag}</span><strong>${p.name}</strong></td>
+                    <td class="muted" style="font-size:12px; padding:8px 5px;">${p.age} jr</td>
+                    <td style="font-weight:bold; color:${ovrColor}; padding:8px 5px;">${p.ovr}</td>
+                    <td style="color:${color}; font-weight:bold; padding:8px 0;">${p.contract} wkn</td>
+                    <td style="text-align:right; padding:8px 0;">
+                        <button class="primary btn-extend" data-id="${p.id}" style="font-size:11px; padding:4px 8px">✍️</button>
+                    </td>
+                </tr>`;
+            });
+
+            contractHtml = `
+            <div class="card" style="border-left: 4px solid #facc15;">
+                <h3 style="margin-top:0">⚠️ Aflopende Contracten</h3>
+                <table style="width:100%; font-size:13px; border-collapse:collapse">
+                    ${rows}
+                </table>
+            </div>`;
+        }
+        // ------------------------------
+
+        // 2. Stats Grid
         const totalOvr = Store.state.team.reduce((sum, p) => sum + p.ovr, 0);
         const avgOvr = Store.state.team.length > 0 ? Math.round(totalOvr / Store.state.team.length) : 0;
         
@@ -33,14 +72,12 @@ export const Views = {
             <div class="card" style="margin:0; text-align:center"><div class="muted">Stadion</div><div style="font-size:24px; font-weight:bold">${Store.state.club.facilities.stadium}</div></div>
         </div>`;
 
-        // 3. Laatste Resultaat met Tactiek Note
+        // 3. Laatste Resultaat
         const r = Store.state.results.find(x=>x.isYou);
         let resHTML = `<p class="muted">Nog geen wedstrijd gespeeld.</p>`;
         
         if(r) {
             let noteHtml = r.note ? `<div style="margin-top:5px; font-size:12px; color:#fbbf24;">${r.note}</div>` : "";
-            
-            // Events tonen (max 3 regels)
             let eventsShort = "";
             if(r.events && r.events.length > 0) {
                 eventsShort = r.events.slice(0, 3).map(e => `<div style="font-size:11px;color:var(--text-muted)">${e}</div>`).join("");
@@ -59,7 +96,7 @@ export const Views = {
             </div>`;
         }
 
-        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${sponsorHtml}${statsGrid}<div class="card"><h3>Laatste Resultaat</h3>${resHTML}</div>`;
+        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${sponsorHtml}${contractHtml}${statsGrid}<div class="card"><h3>Laatste Resultaat</h3>${resHTML}</div>`;
         return d;
     },
 

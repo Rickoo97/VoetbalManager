@@ -1,7 +1,7 @@
 export const CONFIG = {
     version: "3.7.1", 
     gameTitle: "Online Voetbal Manager",
-    startBudget: 300000,
+    startBudget: 150000,
     currency: "€",
     maxMatchdays: 34,
 
