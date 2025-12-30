@@ -101,6 +101,32 @@ export const CONFIG = {
     },
 
     positions: ["DM", "VL", "CV", "VR", "VVM", "CM", "CAM", "LB", "SP", "RB"],
+
+    newsTemplates: {
+        bigWin: [
+            "Gala-voorstelling van [WINNER] tegen [LOSER]!",
+            "[WINNER] vernedert [LOSER] met monstescore.",
+            "Supporters [LOSER] eisen ontslag trainer na wanvertoning.",
+            "Genieten geblazen bij [WINNER] - [LOSER]."
+        ],
+        upset: [
+            "Stunt van de week: [WINNER] verslaat [LOSER]!",
+            "David verslaat Goliath: [WINNER] pakt de punten.",
+            "Crisis bij [LOSER] na verlies tegen kleintje.",
+            "Blamage voor [LOSER] op bezoek bij [WINNER]."
+        ],
+        draw: [
+            "Slaapverwekkende remise tussen [HOME] en [AWAY].",
+            "Brilstand bij [HOME] - [AWAY], toeschouwers de dupe.",
+            "Spectaculair gelijkspel: [HOME] en [AWAY] delen punten."
+        ],
+        transfer: [
+            "[PLAYER] maakt droomtransfer naar [CLUB].",
+            "[CLUB] smijt met geld en haalt [PLAYER].",
+            "Nieuwe aanwinst [PLAYER] gepresenteerd bij [CLUB].",
+            "Fans [CLUB] blij met komst [PLAYER]."
+        ]
+    },
     
     realLeagues: {
         1: ["PSV", "Feyenoord", "FC Twente", "AZ", "Ajax", "NEC", "FC Utrecht", "Sparta Rotterdam", "Go Ahead Eagles", "Fortuna Sittard", "sc Heerenveen", "PEC Zwolle", "Almere City FC", "Heracles Almelo", "RKC Waalwijk", "Willem II", "FC Groningen", "NAC Breda"],

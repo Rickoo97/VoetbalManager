@@ -531,24 +531,41 @@ processMatchday() {
             if(days.includes(Store.state.game.day)) this.playCupMatch();
         }
 
-        // 4. CONTRACT FIX: Eerst verlagen, dan kijken wie weg moet
-        Store.state.team.forEach(p => p.contract--);
+      // 4. CONTRACT FIX & TRAINING CLEANUP
+Store.state.team.forEach(p => p.contract--);
 
-        const leavingPlayers = Store.state.team
-            .filter(p => p.contract <= 0)
-            .map(p => p.name);
+const leavingPlayers = Store.state.team
+    .filter(p => p.contract <= 0)
+    .map(p => p.name);
 
-        if(leavingPlayers.length > 0) {
-            // Verwijder spelers met afgelopen contract uit de database
-            Store.state.team = Store.state.team.filter(p => p.contract > 0);
-            alert(`⚠️ CONTRACT VERLOPEN!\n\nDe volgende spelers hebben de club transfervrij verlaten:\n- ${leavingPlayers.join("\n- ")}`);
-        }
+if(leavingPlayers.length > 0) {
+    // 1. Verwijder spelers uit team
+    const leavingIds = Store.state.team.filter(p => p.contract <= 0).map(p => p.id);
+    Store.state.team = Store.state.team.filter(p => p.contract > 0);
 
-        // --- BUGFIX: TRAINING OPSCHONEN ---
-        // Verwijder spelers uit de trainingslijst die niet meer in het team zitten
-        Store.state.training.selected = Store.state.training.selected.filter(id => 
-            Store.state.team.some(p => p.id === id)
-        );
+    // 2. BUGFIX: Verwijder ze ook uit de training selectie!
+    if(Store.state.training && Store.state.training.selected) {
+        Store.state.training.selected = Store.state.training.selected.filter(id => !leavingIds.includes(id));
+    }
+    
+    // 3. BUGFIX: Verwijder ze van de transferlijst
+    Store.state.transferList = Store.state.transferList.filter(id => !leavingIds.includes(id));
+
+    alert(`⚠️ CONTRACT VERLOPEN!\n\nDe volgende spelers hebben de club transfervrij verlaten:\n- ${leavingPlayers.join("\n- ")}`);
+}
+
+// 4.5. CRITICAL CHECK: Hebben we nog wel 11 spelers?
+if(Store.state.team.length < 11) {
+    alert("⛔ TE WEINIG SPELERS!\n\nJe hebt minder dan 11 spelers door verlopen contracten of verkopen.\n\nJe krijgt noodgedwongen 2 amateurspelers uit de jeugd.");
+    // Noodgreep: Voeg 2 slechte spelers toe zodat de game niet vastloopt
+    Store.state.team.push(this.createPlayer(null, 17));
+    Store.state.team.push(this.createPlayer(null, 17));
+    Store.state.team[Store.state.team.length-1].ovr = 40; // Straf: slechte speler
+    Store.state.team[Store.state.team.length-2].ovr = 40;
+    Store.save();
+    UI.render();
+    return; // Stop de week simulatie, speler moet eerst managen
+}
 
         // 5. Financiën (Salaris & Onderhoud)
         const wages = Store.state.team.reduce((sum, p) => sum + p.wage, 0);
@@ -588,10 +605,73 @@ processMatchday() {
         // NIEUW: Zorg dat je volgende week weer kunt trainen
         if(Store.state.training) Store.state.training.done = false;
 
+        this.updateBoardConfidence(); // Vertrouwen bijwerken na alle wedstrijden
         Store.state.game.day++; 
         Store.save(); 
         UI.render(); 
         UI.toast(`Ronde ${Store.state.game.day-1} voltooid.`);
+    },
+
+    determineObjective() {
+        const div = Store.state.club.division;
+        const ovr = this.calculatePlayerTeamStrength();
+        
+        // Simpele logica: Hoe goed is je team?
+        let objText = "Handhaven";
+        let objRank = 14; // Veilig
+        
+        // Als je team sterk is (> 75 in div 5, > 80 in div 1 etc)
+        // Dit is een simpele schatting
+        if(ovr > 80) { objText = "Kampioen worden"; objRank = 1; }
+        else if(ovr > 70) { objText = "Promoveren / Top 3"; objRank = 3; }
+        else if(ovr > 60) { objText = "Linkerrijtje (Top 9)"; objRank = 9; }
+        
+        Store.state.board.objective = objText;
+        Store.state.board.objectiveRank = objRank;
+        Store.state.board.confidence = 80; // Reset vertrouwen bij nieuw seizoen
+    },
+
+    // 2. Roep deze aan IN processMatchday, vlak na 'this.applyResult(...)'
+    updateBoardConfidence(resultData) {
+        const board = Store.state.board;
+        // resultData is het object { score: [h, a], ... }
+        // We moeten weten of WIJ gewonnen of verloren hebben.
+        // Omdat we in processMatchday niet makkelijk weten wie 'h' en 'a' is in de loop,
+        // kunnen we het beste kijken naar de positie op de ranglijst aan het eind van de week.
+        
+        // Alternatief: Check laatste resultaat in Store.state.results
+        const lastMatch = Store.state.results.find(r => r.isYou);
+        if(!lastMatch) return; // Geen wedstrijd gespeeld (bv. vrijgeloot)
+
+        const myScore = lastMatch.score[0]; // Even aannemen dat we altijd Home zijn in de weergave? 
+        // Nee, in results staat 'isYou', maar score is [thuis, uit].
+        // Laten we simpeler doen: kijk naar de HUIDIGE positie in de competitie.
+        
+        const table = Store.state.competitions[Store.state.club.division]
+            .sort((a,b) => b.pts - a.pts || b.gd - a.gd);
+            
+        const myRank = table.findIndex(t => t.id === Store.state.club.id) + 1;
+        
+        // Logica:
+        // Sta je BOVEN je doelstelling? -> Vertrouwen +
+        // Sta je ONDER je doelstelling? -> Vertrouwen -
+        
+        if(myRank <= board.objectiveRank) {
+            board.confidence = Math.min(100, board.confidence + 2);
+        } else {
+            // Hoe ver zit je eronder?
+            const diff = myRank - board.objectiveRank;
+            let penalty = 2;
+            if(diff > 5) penalty = 5; // Zware straf als je stijf onderaan staat
+            
+            board.confidence = Math.max(0, board.confidence - penalty);
+        }
+        
+        // CHECK GAME OVER
+        if(board.confidence <= 0) {
+            alert(`😤 ONTSLAG!\n\nHet bestuur heeft geen vertrouwen meer in je.\nJe doelstelling (${board.objective}) is uit zicht.\n\nJe wordt per direct op straat gezet.`);
+            Store.reset(); // Of een 'Game Over' scherm tonen
+        }
     },
 
 simulateRound(divNr, report) {
@@ -648,6 +728,72 @@ simulateTransfers() {
                 UI.toast(`📩 Bod van ${buyer.name} op ${p.name}!`);
             }
         });
+    },
+
+generateNews() {
+        const s = Store.state;
+        let articles = [];
+
+        // 1. Check opvallende uitslagen van vorige week (in alle divisies)
+        // We kijken naar 's.results' (jouw divisie) en simuleren checks voor AI divisies
+        // Voor het gemak kijken we nu even naar de uitslagen die in 's.results' zitten (jouw divisie)
+        // en genereren we random nieuws voor de andere divisies om de wereld te vullen.
+
+        // A. Nieuws uit JOUW divisie (echte uitslagen)
+        s.results.forEach(r => {
+            const diff = Math.abs(r.score[0] - r.score[1]);
+            const total = r.score[0] + r.score[1];
+            
+            // Grote uitslag (verschil > 3)
+            if(diff >= 3) {
+                const winner = r.score[0] > r.score[1] ? r.home : r.away;
+                const loser = r.score[0] > r.score[1] ? r.away : r.home;
+                const txt = UTILS.choice(CONFIG.newsTemplates.bigWin).replace('[WINNER]', winner).replace('[LOSER]', loser);
+                articles.push({ type:'match', text: txt, club: winner, important: true });
+            }
+            // Doelpuntrijk gelijkspel
+            else if(r.score[0] === r.score[1] && total >= 4) {
+                const txt = UTILS.choice(CONFIG.newsTemplates.draw).replace('[HOME]', r.home).replace('[AWAY]', r.away);
+                articles.push({ type:'match', text: txt, club: r.home });
+            }
+        });
+
+        // B. Willekeurig nieuws uit topdivisies (Sfeer)
+        if(Math.random() < 0.5) {
+            const topClubs = CONFIG.realLeagues[1]; // Eredivisie
+            const c1 = UTILS.choice(topClubs);
+            const c2 = UTILS.choice(topClubs);
+            if(c1 !== c2) {
+                const txt = `Gerucht: ${c1} heeft interesse in sterspeler van ${c2}.`;
+                articles.push({ type:'rumor', text: txt, club: c1 });
+            }
+        }
+
+        // C. Transfernieuws (Kijken naar incomingOffers of gewoon random AI transfers verzinnen voor de sfeer)
+        // Laten we een fake transfer genereren uit de Eredivisie voor de leuk
+        if(Math.random() < 0.3) {
+            const names = ["Jansen", "de Jong", "Silva", "Bakker", "Santos"];
+            const clubs = CONFIG.realLeagues[1];
+            const txt = UTILS.choice(CONFIG.newsTemplates.transfer)
+                .replace('[PLAYER]', UTILS.choice(names))
+                .replace('[CLUB]', UTILS.choice(clubs));
+            articles.push({ type:'transfer', text: txt, club: UTILS.choice(clubs) });
+        }
+
+        // D. Club specifiek nieuws (Jij)
+        if(s.club.budget < 50000) {
+            articles.push({ type:'finance', text: `Zorgen over financiën bij ${s.club.name}.`, club: s.club.name });
+        }
+
+        // Voeg toe aan store (Bovenin, nieuwste eerst)
+        // Maximaal 20 berichten bewaren
+        const newsItems = articles.map(a => ({ 
+            id: UTILS.rid(), 
+            week: s.game.day, 
+            ...a 
+        }));
+        
+        s.news = [...newsItems, ...s.news].slice(0, 25);
     },
 
 // --- MATCH ENGINE 2.0 ---
@@ -962,7 +1108,8 @@ endSeason() {
         // 5. Update UI en Save
         Store.state.ui.viewDivision = Store.state.club.division;
         this.initCupSeason();
-        
+        this.determineObjective();
+
         alert(msg); 
         Store.save(); 
         UI.render();

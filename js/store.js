@@ -11,9 +11,16 @@ export const Store = {
             tactic: "neutral",
             sponsor: null, sponsorOffers: []
         },
+        board: { 
+        confidence: 80,       // Start vertrouwen
+        objective: "Top 5",   // Wordt overschreven bij start seizoen
+        objectiveRank: 5      // De plek die je moet halen
+    },
         cup: { active: false, inTournament: false, nextRound: 0, history: [] },
         ui: { currentTab: 'welcome', viewDivision: 5, theme: 'dark' },
         finance: { lastWeek: { income: 0, expenses: 0, profit: 0, breakdown: [] } },
+
+        News: [],
         
         team: [], market: [], transferList: [], incomingOffers: [], youthAcademy: [],
         competitions: {}, results: []
@@ -107,6 +114,7 @@ export const Store = {
         Engine.generateSponsorOffers();
         Engine.initCupSeason();
 
+        Engine.determineObjective()
         this.save();
         UI.render(); 
     },

@@ -111,6 +111,7 @@ export const UI = {
             case 'sponsors': cont.appendChild(Views.Sponsors()); break;
             case 'finance': cont.appendChild(Views.Finance()); break;
             case 'history': cont.appendChild(Views.History()); break;
+            case 'news': cont.appendChild(Views.News()); break; // <--- NIEUW
             case 'beker': cont.appendChild(Views.Cup()); break;
             default: cont.innerHTML = "<p>Pagina niet gevonden</p>";
         }
@@ -133,7 +134,8 @@ export const UI = {
             {id:'club',i:'🏗️',l:'Faciliteiten'}, 
             {id:'sponsors',i:'🤝',l:'Sponsors'}, 
             {id:'finance',i:'📊',l:'Financiën'},
-            {id:'history',i:'📜',l:'Historie'} // <--- NIEUW TOEGEVOEGD
+            {id:'history',i:'📜',l:'Historie'},
+            {id:'news', i:'📰', l:'Nieuws'} // <--- NIEUW TOEGEVOEGD
         ];
 
         // Voeg beker alleen toe als je divisie hoog genoeg is (Div 1, 2 of 3)
@@ -154,6 +156,11 @@ export const UI = {
         // Update stats bovenin
         const elBudget = document.getElementById("budget");
         const elName = document.getElementById("club-name");
+if(elName) {
+    // Voeg badge toe aan de header
+    const badge = UTILS.getClubBadge(Store.state.club.name, 24);
+    elName.innerHTML = `<div style="display:flex; align-items:center; gap:8px">${badge} ${Store.state.club.name}</div>`;
+}
         const elDiv = document.getElementById("club-division");
         const elMatch = document.getElementById("matchday");
 

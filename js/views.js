@@ -6,11 +6,13 @@ import { Engine } from './engine.js';
 export const Views = {
     Welcome() {
         const d=document.createElement('div'); d.className="card"; d.style.textAlign="center"; d.style.maxWidth="400px"; d.style.margin="100px auto";
-        d.innerHTML=`<h1>${CONFIG.gameTitle}</h1><p class="muted">Start je carrière.</p><div style="margin:30px 0"><label style="display:block;margin-bottom:10px">Clubnaam</label><input type="text" id="inp-name" value="FC Breda" style="padding:10px;width:100%;border-radius:8px;border:1px solid #444;background:var(--bg-body);color:var(--text-main)"></div><button class="primary" id="btn-start" style="width:100%">Start Carrière</button>`;
+        // Visuele upgrade: Een groot logo boven de titel
+        const demoLogo = UTILS.getClubBadge("FC Start", 60);
+        d.innerHTML=`${demoLogo}<h1 style="margin-top:15px">${CONFIG.gameTitle}</h1><p class="muted">Start je carrière.</p><div style="margin:30px 0"><label style="display:block;margin-bottom:10px">Clubnaam</label><input type="text" id="inp-name" value="FC Breda" style="padding:10px;width:100%;border-radius:8px;border:1px solid #444;background:var(--bg-body);color:var(--text-main)"></div><button class="primary" id="btn-start" style="width:100%">Start Carrière</button>`;
         return d;
     },
 
-Dashboard() {
+    Dashboard() {
         const d=document.createElement('div');
         
         // 1. Meldingen
@@ -21,46 +23,28 @@ Dashboard() {
             ? `<div class="card" style="background:rgba(34,197,94,0.1); border-color:#22c55e">Sponsor: <strong>${Store.state.club.sponsor.name}</strong> (+ ${UTILS.fmtMoney(Store.state.club.sponsor.amount)}/wk)</div>`
             : `<div class="card" style="background:rgba(239, 68, 68, 0.1); border-color:#ef4444">⚠️ <strong>Geen sponsor!</strong> Ga snel naar Sponsors om een deal te sluiten.</div>`;
 
-        // --- CONTRACT ALERTS (Met Leeftijd & OVR) ---
-        const expiring = Store.state.team
-            .filter(p => p.contract <= 10)
-            .sort((a,b) => a.contract - b.contract);
+        const board = Store.state.board || { confidence: 80, objective: "Geen" };
+    
+    // Kleur bepalen: Groen, Oranje of Rood
+    let barColor = "#22c55e"; // Groen
+    if(board.confidence < 50) barColor = "#facc15"; // Geel
+    if(board.confidence < 25) barColor = "#ef4444"; // Rood
 
-        let contractHtml = "";
+    const boardHtml = `
+    <div class="card">
+        <div style="display:flex; justify-content:space-between; margin-bottom:5px">
+            <strong>Bestuur & Verwachting</strong>
+            <span style="font-size:12px" class="muted">Doel: ${board.objective}</span>
+        </div>
+        <div style="background:#334155; height:10px; border-radius:5px; overflow:hidden; position:relative">
+            <div style="background:${barColor}; width:${board.confidence}%; height:100%; transition: width 0.3s"></div>
+        </div>
+        <div style="text-align:right; font-size:11px; margin-top:3px; color:${barColor}">
+            Vertrouwen: ${board.confidence}%
+        </div>
+    </div>`;
         
-        if(expiring.length > 0) {
-            let rows = "";
-            expiring.forEach(p => {
-                const flag = p.flag || "";
-                const color = p.contract <= 5 ? "#ef4444" : "#facc15"; 
-                const urgentie = p.contract <= 5 ? "⚠️" : "⏳";
-                
-                // OVR kleur groen maken als hij goed is (70+)
-                const ovrColor = p.ovr >= 70 ? "#22c55e" : "inherit";
-
-                rows += `
-                <tr style="border-bottom:1px dashed var(--border)">
-                    <td style="padding:8px 0;">${urgentie} <span style="margin:0 5px">${flag}</span><strong>${p.name}</strong></td>
-                    <td class="muted" style="font-size:12px; padding:8px 5px;">${p.age} jr</td>
-                    <td style="font-weight:bold; color:${ovrColor}; padding:8px 5px;">${p.ovr}</td>
-                    <td style="color:${color}; font-weight:bold; padding:8px 0;">${p.contract} wkn</td>
-                    <td style="text-align:right; padding:8px 0;">
-                        <button class="primary btn-extend" data-id="${p.id}" style="font-size:11px; padding:4px 8px">✍️</button>
-                    </td>
-                </tr>`;
-            });
-
-            contractHtml = `
-            <div class="card" style="border-left: 4px solid #facc15;">
-                <h3 style="margin-top:0">⚠️ Aflopende Contracten</h3>
-                <table style="width:100%; font-size:13px; border-collapse:collapse">
-                    ${rows}
-                </table>
-            </div>`;
-        }
-        // ------------------------------
-
-        // 2. Stats Grid
+            // 2. Stats Grid (Responsive)
         const totalOvr = Store.state.team.reduce((sum, p) => sum + p.ovr, 0);
         const avgOvr = Store.state.team.length > 0 ? Math.round(totalOvr / Store.state.team.length) : 0;
         
@@ -72,22 +56,30 @@ Dashboard() {
             <div class="card" style="margin:0; text-align:center"><div class="muted">Stadion</div><div style="font-size:24px; font-weight:bold">${Store.state.club.facilities.stadium}</div></div>
         </div>`;
 
-        // 3. Laatste Resultaat
+        // 3. Laatste Resultaat met Visuals
         const r = Store.state.results.find(x=>x.isYou);
         let resHTML = `<p class="muted">Nog geen wedstrijd gespeeld.</p>`;
         
         if(r) {
             let noteHtml = r.note ? `<div style="margin-top:5px; font-size:12px; color:#fbbf24;">${r.note}</div>` : "";
+            
+            // Events tonen (max 3 regels)
             let eventsShort = "";
             if(r.events && r.events.length > 0) {
                 eventsShort = r.events.slice(0, 3).map(e => `<div style="font-size:11px;color:var(--text-muted)">${e}</div>`).join("");
                 if(r.events.length > 3) eventsShort += `<div style="font-size:10px;color:var(--text-muted)">... +${r.events.length - 3} meer</div>`;
             }
 
+            // VISUAL UPDATE: Badges ophalen
+            const homeBadge = UTILS.getClubBadge(r.home, 32);
+            const awayBadge = UTILS.getClubBadge(r.away, 32);
+
             resHTML = `
             <div style="border-left:4px solid #22c55e; padding-left:15px; margin-top:10px">
-                <div style="font-size:20px; font-weight:bold; margin-bottom:5px">
-                    ${r.home} <span style="font-size:24px; color:var(--accent)">${r.score[0]} - ${r.score[1]}</span> ${r.away}
+                <div style="display:flex; align-items:center; gap:10px; font-size:18px; font-weight:bold; margin-bottom:5px">
+                    <div style="display:flex; align-items:center; gap:8px">${homeBadge} ${r.home}</div>
+                    <span style="font-size:24px; color:var(--accent); margin:0 10px">${r.score[0]} - ${r.score[1]}</span>
+                    <div style="display:flex; align-items:center; gap:8px">${r.away} ${awayBadge}</div>
                 </div>
                 ${noteHtml}
                 <div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border)">
@@ -96,7 +88,7 @@ Dashboard() {
             </div>`;
         }
 
-        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${sponsorHtml}${contractHtml}${statsGrid}<div class="card"><h3>Laatste Resultaat</h3>${resHTML}</div>`;
+        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${sponsorHtml}${boardHtml}${statsGrid}<div class="card"><h3>Laatste Resultaat</h3>${resHTML}</div>`;
         return d;
     },
 
@@ -107,18 +99,6 @@ Dashboard() {
         const t = Store.state.training;
         const facLvl = Store.state.club.facilities.training;
         
-        // Bepaal max slots voor weergave
-        let maxSlots = 2;
-        let potentialTxt = "+0 of +1";
-        
-        if(facLvl >= 2) maxSlots = 3;
-        if(facLvl >= 3) potentialTxt = "+0 tot +2"; // Bij lvl 3 kan je +2 krijgen
-        if(facLvl >= 4) maxSlots = 4;
-        if(facLvl >= 5) potentialTxt = "+1 tot +2"; // Bij lvl 5 altijd groei
-        
-        // Correctie voor tekst lvl 2 (is nog steeds +0/+1 maar wel 3 slots)
-        if(facLvl === 2) potentialTxt = "+0 of +1";
-
         let header = `<h2>Training <span class="badge">Lvl ${facLvl}</span></h2>`;
         
         // Status blok
@@ -128,32 +108,33 @@ Dashboard() {
         } else {
             const count = t.selected.length;
             const btnClass = count > 0 ? "primary" : "secondary";
-            statusHtml = `<div class="card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
-                <div>
-                    <strong>Geselecteerd: ${count} / ${maxSlots}</strong><br>
-                    <small class="muted">Verwachte groei: ${potentialTxt}</small>
-                </div>
+            statusHtml = `<div class="card" style="display:flex; justify-content:space-between; align-items:center">
+                <div><strong>Geselecteerd: ${count} / 3</strong><br><small class="muted">Hoger facility level = meer groei.</small></div>
                 <button class="${btnClass}" onclick="Engine.executeTraining()">Start Training</button>
             </div>`;
         }
 
-        // Lijst met spelers
-        let listHtml = `<div class="card"><table><thead><tr><th>Select</th><th>Naam</th><th>Pos</th><th>OVR</th><th>Groei Potentie</th></tr></thead><tbody>`;
+        // Lijst met spelers (Met Faces)
+        let listHtml = `<div class="card"><table><thead><tr><th>Sel</th><th>Speler</th><th>Pos</th><th>OVR</th><th>Potentie</th></tr></thead><tbody>`;
         
         Store.state.team.forEach(p => {
             const isSel = t.selected.includes(p.id);
             const check = isSel ? "✅" : "⬜";
             const rowStyle = isSel ? "background:rgba(34,197,94,0.1)" : "";
+            const face = UTILS.getPlayerFace(p.id); // VISUAL
             
             let pot = "⭐⭐⭐";
             if(p.age > 24) pot = "⭐⭐";
             if(p.age > 29) pot = "⭐";
 
-            const flag = p.flag || ""; 
-
             listHtml += `<tr style="${rowStyle}; cursor:pointer" onclick="Engine.toggleTrainingSelect('${p.id}')">
                 <td>${check}</td>
-                <td><span style="margin-right:5px">${flag}</span><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td>
+                <td>
+                    <div class="club-row">
+                        ${face}
+                        <div><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></div>
+                    </div>
+                </td>
                 <td><span class="pill">${p.pos}</span></td>
                 <td><strong>${p.ovr}</strong></td>
                 <td>${pot}</td>
@@ -168,11 +149,13 @@ Dashboard() {
         const d = document.createElement('div');
         if(Store.state.club.sponsor) {
             let s = Store.state.club.sponsor;
+            // Fake logo voor sponsor
+            const logo = UTILS.getClubBadge(s.name, 50);
             d.innerHTML=`<h2>Sponsor</h2><div class="card" style="text-align:center">
+                <div style="display:flex;justify-content:center;margin-bottom:10px">${logo}</div>
                 <h1>${s.name}</h1>
                 <h3>${UTILS.fmtMoney(s.amount)} / week</h3>
                 <p class="muted">Looptijd: nog <strong>${s.weeksLeft}</strong> weken</p>
-                <div style="font-size:40px; margin-top:10px">🤝</div>
             </div>`;
         } else {
             let h = `<h2>Sponsors</h2><p class="muted" style="margin-bottom:20px">Kies een sponsor. Je kunt onderhandelen voor een beter bedrag, maar pas op: ze kunnen weglopen!</p>`;
@@ -184,12 +167,16 @@ Dashboard() {
                     const negotiatedClass = o.negotiated ? "disabled" : "secondary";
                     const negAction = o.negotiated ? "" : `onclick="Engine.negotiateSponsor('${o.id}', 'negotiate')"`;
                     const negText = o.negotiated ? "Onderhandeld" : "Onderhandel (+)";
+                    const spLogo = UTILS.getClubBadge(o.name, 30);
 
                     h += `<div class="card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
-                        <div>
-                            <strong>${o.name}</strong><br>
-                            <span style="font-size:18px; color:var(--accent); font-weight:bold">${UTILS.fmtMoney(o.amount)}</span> / week<br>
-                            <span class="muted">${o.duration} weken</span>
+                        <div style="display:flex; align-items:center; gap:10px">
+                            ${spLogo}
+                            <div>
+                                <strong>${o.name}</strong><br>
+                                <span style="font-size:18px; color:var(--accent); font-weight:bold">${UTILS.fmtMoney(o.amount)}</span> / week<br>
+                                <span class="muted">${o.duration} weken</span>
+                            </div>
                         </div>
                         <div style="display:flex; gap:5px">
                             <button class="${negotiatedClass}" ${negAction} style="font-size:12px">${negText}</button>
@@ -208,7 +195,13 @@ Dashboard() {
         const c = Store.state.cup;
         let hist = "";
         if(c.history.length === 0) hist = "<p class='muted'>Nog geen wedstrijden gespeeld.</p>";
-        else c.history.forEach(h => { hist += `<div style="padding:10px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between"><span><strong>${h.round}</strong> vs ${h.opponent}</span><span style="font-weight:bold; color:${h.win?'#22c55e':'#ef4444'}">${h.score[0]} - ${h.score[1]}</span></div>`; });
+        else c.history.forEach(h => { 
+            const oppBadge = UTILS.getClubBadge(h.opponent, 24);
+            hist += `<div style="padding:10px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center">
+                <span><strong>${h.round}</strong> vs <span style="display:inline-flex; vertical-align:middle; margin:0 5px">${oppBadge}</span> ${h.opponent}</span>
+                <span style="font-weight:bold; color:${h.win?'#22c55e':'#ef4444'}">${h.score[0]} - ${h.score[1]}</span>
+            </div>`; 
+        });
         let status = c.inTournament ? `<div style="padding:20px; text-align:center; background:rgba(34,197,94,0.1); border-radius:8px; margin-bottom:20px"><h2 style="margin:0">Je zit nog in de race!</h2><p>Volgende ronde rond speeldag ${c.nextRound}</p></div>` : `<div style="padding:20px; text-align:center; background:rgba(239,68,68,0.1); border-radius:8px; margin-bottom:20px"><h2 style="margin:0">Helaas, uitgeschakeld.</h2></div>`;
         d.innerHTML = `<h2>KNVB Beker</h2>${status}<div class="card"><h3>Geschiedenis</h3>${hist}</div>`;
         return d;
@@ -235,12 +228,17 @@ Dashboard() {
                  btnAction = `<button class="${btnClass} btn-list" data-id="${p.id}" style="font-size:10px; padding:4px 6px">${btnLabel}</button>`;
             }
 
-            // VLAG UPDATE
-            const flag = p.flag || "";
+            // VISUAL UPDATE: Face toevoegen
+            const face = UTILS.getPlayerFace(p.id);
 
             h+=`<tr>
                 <td><span class="pill">${p.pos}</span></td>
-                <td><span style="margin-right:5px; font-size:1.2em; vertical-align:middle">${flag}</span><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td>
+                <td>
+                    <div class="club-row">
+                        ${face}
+                        <div><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></div>
+                    </div>
+                </td>
                 <td style="${c};font-weight:bold">${p.ovr}</td>
                 <td class="muted" style="font-size:13px">${p.att || '-'}</td>
                 <td class="muted" style="font-size:13px">${p.def || '-'}</td>
@@ -258,7 +256,7 @@ Dashboard() {
         const d=document.createElement('div');
         const isOpen = Engine.isTransferWindowOpen();
         const statusColor = isOpen ? "#22c55e" : "#ef4444";
-        const statusText = isOpen ? "OPEN" : "GESLOTEN (Open: Week 1-6 & 17-22)";
+        const statusText = isOpen ? "OPEN" : "GESLOTEN";
 
         let header = `<h2>Transfermarkt <span class="badge" style="background:${statusColor};color:white;font-size:12px;vertical-align:middle;margin-left:10px">${statusText}</span></h2>`;
 
@@ -275,11 +273,15 @@ Dashboard() {
         if(Store.state.incomingOffers.length > 0) {
             offersHtml += `<h3>📩 Binnenkomende Biedingen</h3><div class="card">`;
             Store.state.incomingOffers.forEach(o => { 
-                // VLAG UPDATE VOOR BIEDINGEN (Ophalen uit eigen team)
-                const pRef = Store.state.team.find(x => x.id === o.playerId);
-                const flag = pRef && pRef.flag ? pRef.flag : "";
-
-                offersHtml += `<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed var(--border); padding:10px 0;"><div><span class="muted">Club:</span> <strong>${o.club}</strong><br><span class="muted">Speler:</span> ${flag} <strong>${o.playerName}</strong><br><span class="muted">Bod:</span> <span style="color:#22c55e; font-weight:bold">${UTILS.fmtMoney(o.amount)}</span></div><div style="display:flex; gap:5px;"><button class="primary btn-acc" data-id="${o.id}">✅</button><button class="danger btn-rej" data-id="${o.id}">❌</button></div></div>`; 
+                const clubBadge = UTILS.getClubBadge(o.club, 24);
+                offersHtml += `<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed var(--border); padding:10px 0;">
+                    <div>
+                        <div class="club-row"><span class="muted">Van:</span> ${clubBadge} <strong>${o.club}</strong></div>
+                        <div style="margin-top:4px"><span class="muted">Op:</span> <strong>${o.playerName}</strong></div>
+                        <div style="margin-top:4px"><span class="muted">Bod:</span> <span style="color:#22c55e; font-weight:bold">${UTILS.fmtMoney(o.amount)}</span></div>
+                    </div>
+                    <div style="display:flex; gap:5px;"><button class="primary btn-acc" data-id="${o.id}">✅</button><button class="danger btn-rej" data-id="${o.id}">❌</button></div>
+                </div>`; 
             });
             offersHtml += `</div>`;
         } else { offersHtml = `<div class="card" style="padding:15px; text-align:center; color:#aaa">Geen openstaande biedingen.</div>`; }
@@ -288,11 +290,19 @@ Dashboard() {
         Store.state.market.forEach(p=>{
             let c=p.ovr>=70?"color:#22c55e":"";
             const min = Math.round(p.value * 0.9); const max = Math.round(p.value * 1.3);
-            
-            // VLAG UPDATE VOOR MARKT
-            const flag = p.flag || "";
-
-            marketHtml+=`<tr><td><span class="pill">${p.pos}</span></td><td><span style="margin-right:5px; font-size:1.2em; vertical-align:middle">${flag}</span><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></td><td style="${c};font-weight:bold">${p.ovr}</td><td class="money">${UTILS.fmtMoney(min)} - ${UTILS.fmtMoney(max)}</td><td><button class="primary btn-bid" data-id="${p.id}">Bied</button></td></tr>`;
+            const face = UTILS.getPlayerFace(p.id);
+            marketHtml+=`<tr>
+                <td><span class="pill">${p.pos}</span></td>
+                <td>
+                    <div class="club-row">
+                        ${face}
+                        <div><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></div>
+                    </div>
+                </td>
+                <td style="${c};font-weight:bold">${p.ovr}</td>
+                <td class="money">${UTILS.fmtMoney(min)} - ${UTILS.fmtMoney(max)}</td>
+                <td><button class="primary btn-bid" data-id="${p.id}">Bied</button></td>
+            </tr>`;
         });
         marketHtml+=`</tbody></table></div>`;
         
@@ -304,14 +314,24 @@ Dashboard() {
         const d=document.createElement('div');
         const level = Store.state.club.facilities.training;
         if(level < 3) { d.innerHTML = `<h2>Jeugdopleiding</h2><div class="card" style="text-align:center; padding:40px;"><h1 style="font-size:40px">🔒</h1><h3>Academy Gesloten</h3><p class="muted">Je hebt <strong>Trainingscomplex Niveau 3</strong> nodig.</p><p>Huidig niveau: ${level}</p></div>`; return d; }
+        
         let listHtml = "";
         if(Store.state.youthAcademy.length === 0) { listHtml = `<p class="muted">Geen talenten. Stuur de scout op pad!</p>`; } 
         else {
             listHtml = `<table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Actie</th></tr></thead><tbody>`;
             Store.state.youthAcademy.forEach(p => { 
-                // VLAG UPDATE
-                const flag = p.flag || "";
-                listHtml += `<tr><td>${p.pos}</td><td><span style="margin-right:5px">${flag}</span><strong>${p.name}</strong> (${p.age} jr)</td><td>${p.ovr}</td><td><button class="primary btn-sign" data-id="${p.id}">Contract (€ 5.000)</button></td></tr>`; 
+                const face = UTILS.getPlayerFace(p.id);
+                listHtml += `<tr>
+                    <td>${p.pos}</td>
+                    <td>
+                        <div class="club-row">
+                            ${face}
+                            <strong>${p.name}</strong> (${p.age} jr)
+                        </div>
+                    </td>
+                    <td>${p.ovr}</td>
+                    <td><button class="primary btn-sign" data-id="${p.id}">Contract (€ 5.000)</button></td>
+                </tr>`; 
             });
             listHtml += `</tbody></table>`;
         }
@@ -350,13 +370,20 @@ Dashboard() {
         let t=[...Store.state.competitions[v]].sort((a,b)=>b.pts-a.pts); 
         
         t.forEach((x,i)=>{
-            let s = "";
             let rowClass = "";
             if(x.id===Store.state.club.id) { rowClass += " my-club"; }
             if(v > 1 && i < 2) { rowClass += " promo"; }
             if(v < 5 && i >= t.length - 2) { rowClass += " rele"; }
 
-            h+=`<tr class="${rowClass}"><td>${i+1}</td><td>${x.name}</td><td>${x.played}</td><td>${x.won}</td><td>${x.draw}</td><td>${x.lost}</td><td><strong>${x.pts}</strong></td></tr>`
+            // VISUAL UPDATE: Badge toevoegen
+            const badge = UTILS.getClubBadge(x.name, 28);
+
+            h+=`<tr class="${rowClass}">
+                <td>${i+1}</td>
+                <td><div class="club-row">${badge} <span>${x.name}</span></div></td>
+                <td>${x.played}</td><td>${x.won}</td><td>${x.draw}</td><td>${x.lost}</td>
+                <td><strong>${x.pts}</strong></td>
+            </tr>`
         }); 
         d.innerHTML=h+`</tbody></table></div>`; 
         return d; 
@@ -370,15 +397,18 @@ Dashboard() {
         else {
             Store.state.results.forEach(r => {
                 let details = "";
-                // Events en/of tactiek note tonen
                 if(r.note) details += `<div style="color:#fbbf24; font-size:11px; margin-bottom:4px;">${r.note}</div>`;
                 if(r.events) details += r.events.map(e => `<span style="display:inline-block; margin-right:10px; font-size:11px; color:#aaa; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;">${e}</span>`).join(" ");
                 
+                // VISUAL UPDATE
+                const homeBadge = UTILS.getClubBadge(r.home, 24);
+                const awayBadge = UTILS.getClubBadge(r.away, 24);
+
                 h+=`<div style="border-bottom:1px solid var(--border); padding:10px 0;">
-                    <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:5px;">
-                        <span>${r.home}</span>
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-weight:bold; margin-bottom:5px;">
+                        <div class="club-row" style="width:40%">${homeBadge} ${r.home}</div>
                         <span style="font-size:16px; color:var(--accent)">${r.score[0]}-${r.score[1]}</span>
-                        <span>${r.away}</span>
+                        <div class="club-row" style="width:40%; justify-content:flex-end">${r.away} ${awayBadge}</div>
                     </div>
                     <div style="line-height:1.4">${details}</div>
                 </div>`;
@@ -417,6 +447,49 @@ Dashboard() {
         }
         
         d.innerHTML = `<h2>🏆 Hall of Fame</h2>${content}`;
+        return d;
+    },
+
+    News() {
+        const d = document.createElement('div');
+        const news = Store.state.news || [];
+
+        let html = `<h2>📰 Voetbal Nieuws</h2>`;
+
+        if(news.length === 0) {
+            html += `<div class="card" style="text-align:center; padding:30px; color:var(--text-muted)">
+                <h3>Komkommertijd...</h3>
+                <p>Nog geen nieuwsberichten. Speel een ronde!</p>
+            </div>`;
+        } else {
+            html += `<div class="card" style="padding:0">`;
+            
+            news.forEach((item, index) => {
+                const badge = UTILS.getClubBadge(item.club || "FIFA", 36);
+                const border = index !== news.length - 1 ? "border-bottom:1px solid var(--border);" : "";
+                
+                // Icoontje bepalen op basis van type
+                let icon = "📰";
+                if(item.type === 'match') icon = "⚽";
+                if(item.type === 'transfer') icon = "💸";
+                if(item.type === 'rumor') icon = "🤫";
+                if(item.type === 'finance') icon = "📉";
+
+                html += `
+                <div style="display:flex; gap:15px; padding:15px; align-items:center; ${border}">
+                    <div style="flex-shrink:0">${badge}</div>
+                    <div style="flex:1">
+                        <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:2px">
+                            Week ${item.week} • ${icon} ${item.type}
+                        </div>
+                        <div style="font-weight:500; line-height:1.4">${item.text}</div>
+                    </div>
+                </div>`;
+            });
+            html += `</div>`;
+        }
+
+        d.innerHTML = html;
         return d;
     }
 };
