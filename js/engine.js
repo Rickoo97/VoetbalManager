@@ -4,7 +4,28 @@ import { Store } from './store.js';
 import { UI } from './ui.js'; 
 
 export const Engine = {
-    generateSquad(n) { let s=[]; for(let i=0;i<n;i++) s.push(this.createPlayer(i<2?"DM":null)); return s.sort((a,b)=>b.ovr-a.ovr); },
+    generateSquad(n) { 
+        let s=[]; 
+        // Maak standaard spelers
+        for(let i=0;i<n;i++) s.push(this.createPlayer(i<2?"DM":null)); 
+        
+        // NERF: Verzwak dit team omdat het een startende club in Div 5 is
+        s.forEach(p => {
+            // Trek willekeurig 5 tot 12 punten van alle stats af
+            const penalty = 5 + Math.floor(Math.random() * 8);
+            
+            p.att = Math.max(10, p.att - penalty);
+            p.def = Math.max(10, p.def - penalty);
+            p.spd = Math.max(10, p.spd - penalty);
+            
+            // Herbereken OVR en Waarde
+            p.ovr = Math.round((p.att + p.def + p.spd) / 3);
+            p.value = Math.round(p.ovr * p.ovr * 25);
+            p.wage = Math.round(p.value / 250);
+        });
+
+        return s.sort((a,b)=>b.ovr-a.ovr); 
+    },
     generateMarket(n) { let s=[]; for(let i=0;i<n;i++) s.push(this.createPlayer()); return s.sort((a,b)=>b.ovr-a.ovr); },
 
     isYouthTeam(name) {
@@ -16,14 +37,34 @@ export const Engine = {
         return (d >= 1 && d <= 6) || (d >= 17 && d <= 22);
     },
     
-    createPlayer(posOverride, ageOverride) { 
+createPlayer(posOverride, ageOverride) { 
         const pos = posOverride || UTILS.choice(CONFIG.positions); 
         const age = ageOverride || UTILS.rand(16,35);
+        
+        // --- STAP 1: KIES NATIONALITEIT ---
+        // 60% kans op Nederland (NL), 40% kans op willekeurig ander land
+        const allNations = Object.keys(CONFIG.nations); // ["NL", "BE", "DE", ...]
+        let code = "NL";
+
+        if(Math.random() > 0.60) {
+            // Kies een random land dat NIET NL is
+            const foreign = allNations.filter(k => k !== "NL");
+            code = UTILS.choice(foreign);
+        }
+
+        // Haal de data op uit config (vlag en namenlijsten)
+        const nationData = CONFIG.nations[code];
+        
+        // --- STAP 2: KIES NAAM ---
+        const firstName = UTILS.choice(nationData.first);
+        const lastName = UTILS.choice(nationData.last);
+        const fullName = `${firstName} ${lastName}`;
+        
+        // --- STAP 3: GENERATE STATS (ongewijzigd) ---
         let base = 40;
         if(age > 22) base = 55;
         if(age > 28) base = 60;
         
-        // Genereer specifieke stats
         let att, def, spd;
         const rand = (min, max) => base + UTILS.rand(min, max);
 
@@ -43,7 +84,14 @@ export const Engine = {
         const wage = Math.round(val/250); 
         const contract = UTILS.rand(20, 50);
 
-        return { id: UTILS.rid(), name: UTILS.genName(), age, pos, ovr, att, def, spd, value: val, wage, contract: contract }; 
+        // --- STAP 4: RETURN OBJECT MET VLAG ---
+        return { 
+            id: UTILS.rid(), 
+            name: fullName,     // De gekozen naam
+            nat: code,          // De landcode (bijv "NL")
+            flag: nationData.flag, // De emoji vlag (bijv "🇳🇱")
+            age, pos, ovr, att, def, spd, value: val, wage, contract 
+        }; 
     },
 
     // --- NIEUW: TACTIEK SYSTEEM ---
@@ -186,27 +234,86 @@ export const Engine = {
         Store.save(); UI.render(); UI.toast(`${p.name} getekend!`);
     },
 
-    placeBid(id) {
-        // --- NIEUW: Check Transfer Window ---
+placeBid(id) {
+        // 1. Check Transfer Window
         if(!this.isTransferWindowOpen()) {
             return UI.toast("⛔ Markt gesloten! Wacht tot zomer/winter.");
         }
-        // ------------------------------------
         
         const p = Store.state.market.find(x=>x.id===id); if(!p) return;
+        const myDiv = Store.state.club.division; // Jouw divisie (bijv. 5)
+
+        // --- NIEUW: AMBITIE & REALISME CHECK ---
+        
+        // Stap A: Bepaal welk niveau de speler heeft (in welke divisie hoort hij thuis?)
+        let playerLevelDiv = 5; 
+        if(p.ovr >= 78) playerLevelDiv = 1;      // Eredivisie ster
+        else if(p.ovr >= 72) playerLevelDiv = 2; // KKD / Onderkant Eredivisie
+        else if(p.ovr >= 65) playerLevelDiv = 3; // Divisie 3 topper
+        else if(p.ovr >= 55) playerLevelDiv = 4; // Divisie 4
+        
+        // Stap B: Bereken het verschil (Gap)
+        // Als jij Div 5 bent en speler hoort in Div 1, is de gap 4 (groot verschil)
+        // Als jij Div 1 bent en speler hoort in Div 2, is de gap -1 (jij bent beter, speler wil graag)
+        const gap = myDiv - playerLevelDiv; 
+
+        // Stap C: De Leeftijdsfactor
+        // Jongeren (t/m 23) zijn arrogant/ambitieus. Ouderen (30+) zijn chill.
+        let refusalReason = null;
+
+        if (gap > 0) { // Jij speelt lager dan het niveau van de speler
+            if (p.age <= 23) {
+                // JONGE TALENTEN: Accepteren maximaal 1 divisie lager, anders weigeren ze.
+                if(gap > 1) refusalReason = `⛔ "Ik ben ${p.age} en heb veel talent (${p.ovr}). Ik ga mijn carrière niet vergooien in Divisie ${myDiv}!"`;
+            } 
+            else if (p.age >= 30) {
+                // OUDEREN: Accepteren bijna alles, zolang je betaalt.
+                // Geen weigering, ze willen gewoon cashen en spelen.
+            } 
+            else {
+                // PRIME LEEFTIJD (24-29): Accepteren maximaal 2 divisies lager.
+                if(gap > 2) refusalReason = `⛔ "Ik ben in de kracht van mijn leven. Divisie ${myDiv} is echt een stap te ver terug."`;
+            }
+        }
+
+        // Als de speler weigert, stop de functie en toon bericht
+        if (refusalReason) {
+            alert(refusalReason);
+            return;
+        }
+
+        // --- EINDE NIEUWE CHECK (Hieronder de normale geld-logica) ---
+
         const minV = Math.round(p.value * 0.9); const maxV = Math.round(p.value * 1.3);
-        const ask = prompt(`Marktwaarde: ${UTILS.fmtMoney(minV)} - ${UTILS.fmtMoney(maxV)}\nDoe een bod op ${p.name}:`, p.value);
+        const ask = prompt(`Marktwaarde: ${UTILS.fmtMoney(minV)} - ${UTILS.fmtMoney(maxV)}\nDoe een bod op ${p.name} (${p.age}jr, OVR ${p.ovr}):`, p.value);
         if(!ask) return;
         const bid = parseInt(ask);
         if(isNaN(bid)) return UI.toast("Ongeldig bedrag");
         if(Store.state.club.budget < bid) return UI.toast("Onvoldoende budget!");
-        const required = Math.round(p.value * (0.95 + Math.random()*0.3)); 
+        
+        // Oudere spelers zijn soms goedkoper over te halen, jongere spelers duurder
+        let greedFactor = 0.95 + (Math.random() * 0.3);
+        if(p.age < 23) greedFactor += 0.1; // Jong talent is duurder
+        if(p.age > 32) greedFactor -= 0.1; // Oude rot is goedkoper
+
+        const required = Math.round(p.value * greedFactor); 
+
         if(bid >= required) {
             if(Store.state.team.length >= 30) return UI.toast("Selectie is vol!");
+            
+            // Succes bericht aanpassen op basis van leeftijd
+            let welcomeMsg = "";
+            if(p.age > 30 && gap > 0) welcomeMsg = `👴 "Ik kom graag mijn ervaring delen in Divisie ${myDiv}."`;
+            else if(p.age < 23) welcomeMsg = `👶 "Bedankt voor de kans, ik ga vlammen!"`;
+            else welcomeMsg = `🤝 "De deal is rond."`;
+
             Store.state.club.budget -= bid;
             Store.state.team.push(p); Store.state.market = Store.state.market.filter(x=>x.id !== id);
-            Store.save(); UI.render(); alert(`✅ BOD GEACCEPTEERD!\n\n${p.name} komt naar jouw club.`);
-        } else { alert(`❌ BOD GEWEIGERD.\n\nDe club wil minstens ${UTILS.fmtMoney(required)}.`); }
+            Store.save(); UI.render(); 
+            alert(`✅ BOD GEACCEPTEERD!\n\n${welcomeMsg}\n\n${p.name} is speler van ${Store.state.club.name}.`);
+        } else { 
+            alert(`❌ BOD GEWEIGERD.\n\nDe club (en zaakwaarnemer) willen minstens ${UTILS.fmtMoney(required)}.`); 
+        }
     },
     
     extendContract(id) {
@@ -250,6 +357,7 @@ export const Engine = {
         Store.state.club.budget += offer.amount;
         Store.state.team.splice(pIndex, 1); Store.state.incomingOffers.splice(oIdx, 1);
         const tlIdx = Store.state.transferList.indexOf(offer.playerId); if(tlIdx > -1) Store.state.transferList.splice(tlIdx, 1);
+        Store.state.training.selected = Store.state.training.selected.filter(id => id !== p.id);
         Store.save(); UI.render(); alert(`🤝 DEAL!\n\n${p.name} verkocht aan ${offer.club} voor ${UTILS.fmtMoney(offer.amount)}.`);
     },
 
@@ -289,17 +397,22 @@ export const Engine = {
         for(let d=1; d<=5; d++){ 
             let teams = []; 
             
-            // Echte competities (Div 1 & 2)
             if(CONFIG.realLeagues[d]) {
                 CONFIG.realLeagues[d].forEach(n => {
-                    // Ajax, PSV, etc krijgen nu een vast ID
-                    teams.push(mkTeam(n, d===1?80:70, true));
+                    // Echte clubs (Div 1 & 2) iets sterker maken
+                    teams.push(mkTeam(n, d===1?82:74, true)); 
                 });
             } else {
-                // Fictieve competities (Div 3, 4, 5) - vul aan tot 18 teams voor balans
+                // Fictieve competities (Div 3, 4, 5) - MOEILIJKER GEMAAKT
                 const size = 18; 
+                // Oude formule: 90 - (d*10)  --> Div 5 was 40
+                // Nieuwe formule: Div 3=65, Div 4=58, Div 5=52
+                const baseStr = 85 - (d * 7); 
+                
                 for(let i=0; i<size; i++) {
-                    teams.push(mkTeam(UTILS.genClubName(), 90-(d*10), false));
+                    // We voegen variatie toe: sommige teams zijn 55, anderen 49
+                    const strength = baseStr + UTILS.rand(-4, 4);
+                    teams.push(mkTeam(UTILS.genClubName(), strength, false));
                 }
             }
             comps[d] = teams; 
@@ -430,6 +543,12 @@ processMatchday() {
             Store.state.team = Store.state.team.filter(p => p.contract > 0);
             alert(`⚠️ CONTRACT VERLOPEN!\n\nDe volgende spelers hebben de club transfervrij verlaten:\n- ${leavingPlayers.join("\n- ")}`);
         }
+
+        // --- BUGFIX: TRAINING OPSCHONEN ---
+        // Verwijder spelers uit de trainingslijst die niet meer in het team zitten
+        Store.state.training.selected = Store.state.training.selected.filter(id => 
+            Store.state.team.some(p => p.id === id)
+        );
 
         // 5. Financiën (Salaris & Onderhoud)
         const wages = Store.state.team.reduce((sum, p) => sum + p.wage, 0);
@@ -564,17 +683,24 @@ simulateTransfers() {
     toggleTrainingSelect(id) {
         if(Store.state.training.done) return UI.toast("Training voor deze week is al gedaan!");
         
+        const lvl = Store.state.club.facilities.training;
+        
+        // BEPAAL HET MAX AANTAL SLOTS OP BASIS VAN LEVEL
+        let maxSlots = 2; // Level 1 (basis)
+        if(lvl >= 2) maxSlots = 3; // Level 2 & 3
+        if(lvl >= 4) maxSlots = 4; // Level 4 & 5+
+
         const sel = Store.state.training.selected;
         if(sel.includes(id)) {
             // Deselecteer
             Store.state.training.selected = sel.filter(x => x !== id);
         } else {
-            // Selecteer (max 3)
-            if(sel.length >= 3) return UI.toast("Max 3 spelers selecteren!");
+            // Selecteer (met variabele max)
+            if(sel.length >= maxSlots) return UI.toast(`Max ${maxSlots} spelers selecteren op dit niveau!`);
             sel.push(id);
         }
         Store.save();
-        UI.render(); // Ververs scherm om vinkje te tonen
+        UI.render(); 
     },
 
     executeTraining() {
@@ -582,28 +708,39 @@ simulateTransfers() {
         if(t.done) return;
         if(t.selected.length === 0) return UI.toast("Selecteer eerst spelers.");
 
-        // Formule: Trainingslevel bepaalt hoeveel ze groeien
-        // Level 1 = 1 punt, Level 8 = max 3 punten erbij
-        const facilityLvl = Store.state.club.facilities.training;
-        
+        const lvl = Store.state.club.facilities.training;
         let report = [];
 
         t.selected.forEach(pid => {
             const p = Store.state.team.find(x => x.id === pid);
             if(p) {
-                // Bereken groei
-                const growth = 1 + Math.floor(Math.random() * (facilityLvl / 3)); 
-                
-                // Update stats
-                p.att = Math.min(99, p.att + growth);
-                p.def = Math.min(99, p.def + growth);
-                p.spd = Math.min(99, p.spd + growth);
-                // Herbereken OVR
-                p.ovr = Math.round((p.att + p.def + p.spd) / 3);
-                // Waarde stijgt mee
-                p.value = Math.round(p.ovr * p.ovr * 25);
+                // --- NIEUWE GROEI LOGICA ---
+                let min = 0;
+                let max = 0;
 
-                report.push(`${p.name} (+${growth})`);
+                if (lvl === 1) { min = 0; max = 1; }       // Lvl 1: +0 of +1
+                else if (lvl === 2) { min = 0; max = 1; }  // Lvl 2: +0 of +1
+                else if (lvl === 3) { min = 0; max = 2; }  // Lvl 3: +0, +1 of +2
+                else if (lvl === 4) { min = 0; max = 2; }  // Lvl 4: +0, +1 of +2
+                else if (lvl >= 5)  { min = 1; max = 2; }  // Lvl 5: +1 of +2 (Altijd groei)
+
+                // Formule voor random getal tussen min en max (inclusief)
+                const growth = Math.floor(Math.random() * (max - min + 1)) + min;
+                
+                if(growth > 0) {
+                    // Update stats
+                    p.att = Math.min(99, p.att + growth);
+                    p.def = Math.min(99, p.def + growth);
+                    p.spd = Math.min(99, p.spd + growth);
+                    // Herbereken OVR
+                    p.ovr = Math.round((p.att + p.def + p.spd) / 3);
+                    // Waarde stijgt mee
+                    p.value = Math.round(p.ovr * p.ovr * 25);
+                    
+                    report.push(`${p.name} (+${growth})`);
+                } else {
+                    report.push(`${p.name} (+0)`);
+                }
             }
         });
 
