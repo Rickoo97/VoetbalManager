@@ -56,7 +56,29 @@ export const Views = {
             <div class="card" style="margin:0; text-align:center"><div class="muted">Stadion</div><div style="font-size:24px; font-weight:bold">${Store.state.club.facilities.stadium}</div></div>
         </div>`;
 
-        // 3. Laatste Resultaat met Visuals
+        // 3. Volgende wedstrijd (uit het schema)
+        let nextHtml = "";
+        const next = Engine.getMyNextMatch();
+        if(next) {
+            const oppBadge = UTILS.getClubBadge(next.opponent.name, 36);
+            const locTxt = next.isHome ? "🏟️ Thuis" : "🚌 Uit";
+            const tacName = CONFIG.tactics[Store.state.club.tactic].name;
+            nextHtml = `
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
+                    <div>
+                        <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px">Volgende wedstrijd — Speeldag ${next.day}</div>
+                        <div style="display:flex; align-items:center; gap:10px; margin-top:8px; font-size:17px; font-weight:bold">
+                            ${oppBadge} ${next.opponent.name}
+                        </div>
+                        <div class="muted" style="font-size:12px; margin-top:4px">${locTxt} • Jouw tactiek: ${tacName}</div>
+                    </div>
+                    <button class="secondary" data-nav-tab="fixtures" style="font-size:12px">📅 Programma</button>
+                </div>
+            </div>`;
+        }
+
+        // 4. Laatste Resultaat met Visuals
         const r = Store.state.results.find(x=>x.isYou);
         let resHTML = `<p class="muted">Nog geen wedstrijd gespeeld.</p>`;
         
@@ -88,7 +110,7 @@ export const Views = {
             </div>`;
         }
 
-        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${sponsorHtml}${boardHtml}${statsGrid}<div class="card"><h3>Laatste Resultaat</h3>${resHTML}</div>`;
+        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${sponsorHtml}${boardHtml}${statsGrid}${nextHtml}<div class="card"><h3>Laatste Resultaat</h3>${resHTML}</div>`;
         return d;
     },
 
@@ -107,9 +129,12 @@ export const Views = {
             statusHtml = `<div class="card" style="background:rgba(34,197,94,0.1); border-color:#22c55e; text-align:center"><h3>✅ Training Voltooid</h3><p>Volgende week kun je weer trainen.</p></div>`;
         } else {
             const count = t.selected.length;
+            let maxSlots = 2;
+            if(facLvl >= 2) maxSlots = 3;
+            if(facLvl >= 4) maxSlots = 4;
             const btnClass = count > 0 ? "primary" : "secondary";
             statusHtml = `<div class="card" style="display:flex; justify-content:space-between; align-items:center">
-                <div><strong>Geselecteerd: ${count} / 3</strong><br><small class="muted">Hoger facility level = meer groei.</small></div>
+                <div><strong>Geselecteerd: ${count} / ${maxSlots}</strong><br><small class="muted">Hoger facility level = meer groei.</small></div>
                 <button class="${btnClass}" onclick="Engine.executeTraining()">Start Training</button>
             </div>`;
         }
@@ -391,31 +416,90 @@ export const Views = {
 
     Fixtures() { 
         const d=document.createElement('div'); 
-        let h=`<h2>Uitslagen</h2><div class="card">`; 
+        const clubId = Store.state.club.id;
+        const div = Store.state.club.division;
+        const sched = Store.state.schedules ? Store.state.schedules[div] : null;
+        const teams = Store.state.competitions[div] || [];
+        const currentDay = Store.state.game.day;
+        const played = Store.state.seasonResults || [];
         
-        if(Store.state.results.length===0) h+="<p class='muted'>Geen data</p>"; 
-        else {
-            Store.state.results.forEach(r => {
-                let details = "";
-                if(r.note) details += `<div style="color:#fbbf24; font-size:11px; margin-bottom:4px;">${r.note}</div>`;
-                if(r.events) details += r.events.map(e => `<span style="display:inline-block; margin-right:10px; font-size:11px; color:#aaa; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;">${e}</span>`).join(" ");
-                
-                // VISUAL UPDATE
-                const homeBadge = UTILS.getClubBadge(r.home, 24);
-                const awayBadge = UTILS.getClubBadge(r.away, 24);
+        let h = `<h2>Programma & Uitslagen</h2>`;
 
-                h+=`<div style="border-bottom:1px solid var(--border); padding:10px 0;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; font-weight:bold; margin-bottom:5px;">
-                        <div class="club-row" style="width:40%">${homeBadge} ${r.home}</div>
-                        <span style="font-size:16px; color:var(--accent)">${r.score[0]}-${r.score[1]}</span>
-                        <div class="club-row" style="width:40%; justify-content:flex-end">${r.away} ${awayBadge}</div>
-                    </div>
-                    <div style="line-height:1.4">${details}</div>
-                </div>`;
-            });
+        // 1. Laatste wedstrijd met details (events + tactiek)
+        const last = [...played].reverse().find(r => r.isYou);
+        if(last) {
+            let details = "";
+            if(last.note) details += `<div style="color:#fbbf24; font-size:11px; margin-bottom:4px;">${last.note}</div>`;
+            if(last.events && last.events.length) details += last.events.map(e => `<span style="display:inline-block; margin-right:8px; font-size:11px; color:#aaa; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;">${e}</span>`).join(" ");
+            
+            const homeBadge = UTILS.getClubBadge(last.home, 24);
+            const awayBadge = UTILS.getClubBadge(last.away, 24);
+            h += `<div class="card">
+                <h3 style="font-size:14px">Laatste wedstrijd</h3>
+                <div style="display:flex; justify-content:space-between; align-items:center; font-weight:bold; margin-bottom:5px;">
+                    <div class="club-row" style="width:40%">${homeBadge} ${last.home}</div>
+                    <span style="font-size:18px; color:var(--accent)">${last.score[0]}-${last.score[1]}</span>
+                    <div class="club-row" style="width:40%; justify-content:flex-end">${last.away} ${awayBadge}</div>
+                </div>
+                <div style="line-height:1.6">${details || "<span class='muted' style='font-size:11px'>Geen hoogtepunten.</span>"}</div>
+            </div>`;
         }
+
+        // 2. Volledig seizoensschema van jouw club
+        if(!sched) {
+            h += `<div class="card"><p class="muted">Geen schema beschikbaar. Speel een ronde om het schema te genereren.</p></div>`;
+            d.innerHTML = h;
+            return d;
+        }
+
+        const byId = {};
+        teams.forEach(t => byId[t.id] = t);
+
+        let rows = "";
+        sched.forEach((round, idx) => {
+            const day = idx + 1;
+            const m = round.find(x => x.h === clubId || x.a === clubId);
+            if(!m) return; // vrijgeloot deze ronde
+            
+            const isHome = m.h === clubId;
+            const opp = byId[isHome ? m.a : m.h];
+            if(!opp) return;
+            
+            const oppBadge = UTILS.getClubBadge(opp.name, 22);
+            const locTag = isHome 
+                ? `<span class="pill" style="background:rgba(34,197,94,0.15); color:#22c55e">THUIS</span>` 
+                : `<span class="pill" style="background:rgba(59,130,246,0.15); color:#3b82f6">UIT</span>`;
+
+            // Uitslag opzoeken als de ronde al gespeeld is
+            let resultCell = `<span class="muted">-</span>`;
+            let rowStyle = "";
+            
+            if(day < currentDay) {
+                const res = played.find(r => r.day === day);
+                if(res) {
+                    const myGoals = res.home === Store.state.club.name ? res.score[0] : res.score[1];
+                    const oppGoals = res.home === Store.state.club.name ? res.score[1] : res.score[0];
+                    let color = "#facc15", letter = "G"; // Gelijk
+                    if(myGoals > oppGoals) { color = "#22c55e"; letter = "W"; }
+                    else if(myGoals < oppGoals) { color = "#ef4444"; letter = "V"; }
+                    resultCell = `<strong style="color:${color}">${res.score[0]} - ${res.score[1]}</strong> <span class="pill" style="background:${color}; color:#000; margin-left:6px">${letter}</span>`;
+                }
+            } else if(day === currentDay) {
+                rowStyle = "background:rgba(34,197,94,0.08); border-left:3px solid var(--accent)";
+                resultCell = `<span style="color:var(--accent); font-weight:bold">▶ Volgende</span>`;
+            }
+
+            rows += `<tr style="${rowStyle}">
+                <td class="muted">${day}</td>
+                <td><div class="club-row">${oppBadge} <span>${opp.name}</span></div></td>
+                <td>${locTag}</td>
+                <td>${resultCell}</td>
+            </tr>`;
+        });
+
+        h += `<div class="card"><table><thead><tr><th>Dag</th><th>Tegenstander</th><th>Waar</th><th>Uitslag</th></tr></thead><tbody>${rows}</tbody></table></div>`;
         
-        d.innerHTML=h+`</div>`; 
+        d.innerHTML = h; 
         return d; 
     },
 
