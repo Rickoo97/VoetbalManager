@@ -40,7 +40,7 @@ export const Engine = {
 
     // Salaris: schaalt met waarde én rating, zodat lonen echt drukken op het budget
     calcWage(p) {
-        return Math.round(p.value / 100 + p.ovr * 10);
+        return Math.round(p.value / 150 + p.ovr * 5);
     },
 
     isYouthTeam(name) {
@@ -748,7 +748,8 @@ playCupMatch() {
     },
 
 processMatchday() {
-        // 0. Game over? Dan kan er niet verder gespeeld worden
+        // 0. Geen actief spel of game over? Dan niets doen
+        if(!Store.state.team || Store.state.team.length === 0) return;
         if(Store.state.game.over) { this.showGameOver(); return; }
 
         // 1. Check of seizoen voorbij is
@@ -765,16 +766,17 @@ processMatchday() {
 
         // 3. CRITICAL CHECK: Hebben we nog wel 11 spelers?
         if(Store.state.team.length < 11) {
-            // Noodgreep: Voeg 2 zwakke jeugdspelers toe zodat de game niet vastloopt
-            for(let i = 0; i < 2; i++) {
+            // Noodgreep: vul aan tot 11 met zwakke amateurs zodat de game niet vastloopt
+            let added = 0;
+            while(Store.state.team.length < 11) {
                 const emergency = this.createPlayer(null, 17);
                 this.applyStatPenalty(emergency, 20); // Echt zwakke amateurs
                 Store.state.team.push(emergency);
+                added++;
             }
-            UI.alert("⛔ Te weinig spelers!", "Je hebt minder dan 11 spelers.<br><br>Je krijgt noodgedwongen 2 amateurspelers uit de jeugd. Regel snel versterking!");
-            Store.save();
-            UI.render();
-            return; // Stop de week simulatie, speler moet eerst managen
+            this.validateLineup();
+            if(me) me.strength = this.calculatePlayerTeamStrength();
+            UI.alert("⛔ Te weinig spelers!", `Je had minder dan 11 spelers.<br><br>De club heeft noodgedwongen <strong>${added} amateurspeler(s)</strong> uit de jeugd doorgeschoven. Regel snel versterking!`);
         }
 
         // 4. Bekerwedstrijden (op vaste dagen)
@@ -785,7 +787,7 @@ processMatchday() {
 
         // 5. Financiën (Salaris & Onderhoud)
         const wages = Store.state.team.reduce((sum, p) => sum + p.wage, 0);
-        const maint = (Store.state.club.facilities.stadium * 1000) + (Store.state.club.facilities.training * 800) + (Store.state.club.facilities.medical * 1500);
+        const maint = (Store.state.club.facilities.stadium * 500) + (Store.state.club.facilities.training * 400) + (Store.state.club.facilities.medical * 600);
         
         report.expenses = wages + maint;
         report.breakdown.push({txt:"Salarissen & Onderhoud", amt:-(wages+maint)});
@@ -880,6 +882,14 @@ processMatchday() {
             if(diff > 5) penalty = 5; // Zware straf als je stijf onderaan staat
             
             board.confidence = Math.max(0, board.confidence - penalty);
+        }
+
+        // Rode cijfers? Het bestuur wordt onrustig.
+        if(Store.state.club.budget < 0) {
+            board.confidence = Math.max(0, board.confidence - 2);
+            if(board.confidence > 0 && board.confidence < 30) {
+                UI.toast("⚠️ Het bestuur eist dat je de schulden wegwerkt!");
+            }
         }
         
         // CHECK GAME OVER: ontslag is definitief, niet optioneel

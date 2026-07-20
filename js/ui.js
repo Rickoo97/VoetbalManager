@@ -340,7 +340,7 @@ export const UI = {
             const available = Engine.isAvailable(p);
             
             let status = "";
-            if(p.injuredWeeks > 0) status = `<span style="color:#ef4444; font-size:11px">🚑 ${p.injuredWeeks - 1 > 0 ? (p.injuredWeeks - 1) + ' wk' : 'bijna fit'}</span>`;
+            if(p.injuredWeeks > 0) status = `<span style="color:#ef4444; font-size:11px">🚑 ${p.injuredWeeks} wk</span>`;
             else if(p.suspended > 0) status = `<span style="color:#ef4444; font-size:11px">🟥 geschorst</span>`;
             else if(inLineup.has(p.id)) status = `<span class="muted" style="font-size:11px">in basis</span>`;
 

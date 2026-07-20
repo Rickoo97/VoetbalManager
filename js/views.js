@@ -268,7 +268,7 @@ export const Views = {
 
             // Status: blessure / schorsing / basisspeler
             let status = inLineup.has(p.id) ? `<span class="pill" style="background:rgba(34,197,94,0.15); color:#22c55e">Basis</span>` : `<span class="muted" style="font-size:11px">Bank</span>`;
-            if(p.injuredWeeks > 0) status = `<span style="color:#ef4444; font-size:12px">🚑 ${Math.max(1, p.injuredWeeks - 1)} wk</span>`;
+            if(p.injuredWeeks > 0) status = `<span style="color:#ef4444; font-size:12px">🚑 ${p.injuredWeeks} wk</span>`;
             else if(p.suspended > 0) status = `<span style="color:#ef4444; font-size:12px">🟥 Geschorst</span>`;
 
             const onList = Store.state.transferList.includes(p.id);
