@@ -25,6 +25,7 @@ export const Store = {
         history: [],
         schedules: {},       // Wedstrijdschema per divisie (round-robin)
         seasonResults: [],   // Alle gespeelde wedstrijden van JOUW club dit seizoen
+        lineup: null,        // Opstelling: { gk, def: [], mid: [], att: [] }
 
         team: [], market: [], transferList: [], incomingOffers: [], youthAcademy: [],
         competitions: {}, results: []
@@ -54,15 +55,31 @@ export const Store = {
                         if(["SP", "LB", "RB"].includes(p.pos)) { p.att += 5; p.def -= 5; }
                         if(["CV", "DM"].includes(p.pos)) { p.def += 5; p.att -= 5; }
                     }
-                    // 2. Contract fix
-                    // Geef bestaande spelers willekeurig tussen 10 en 40 weken contract
-                    if(p.contract === undefined) {
-                        p.contract = Math.floor(Math.random() * 30) + 10;
+                    // 2. Week-contracten omzetten naar seizoenscontracten
+                    if(p.contractYears === undefined) {
+                        const weeks = p.contract !== undefined ? p.contract : 34;
+                        p.contractYears = Math.max(1, Math.min(4, Math.ceil(weeks / 34)));
+                        delete p.contract;
                     }
+                    // 3. Nieuw salaris-model
+                    p.wage = Engine.calcWage(p);
+                    // 4. Blessure/schorsing velden
+                    if(p.injuredWeeks === undefined) p.injuredWeeks = 0;
+                    if(p.suspended === undefined) p.suspended = 0;
                 };
                 
                 if(this.state.team) this.state.team.forEach(upgradePlayer);
                 if(this.state.market) this.state.market.forEach(upgradePlayer);
+                if(this.state.youthAcademy) this.state.youthAcademy.forEach(upgradePlayer);
+
+                // 5. Keepers: oude saves hebben geen 'K' positie.
+                //    Maak van de 2 minst aanvallende verdedigers keepers.
+                if(this.state.team && this.state.team.length > 0 && !this.state.team.some(p => p.pos === "K")) {
+                    const candidates = [...this.state.team]
+                        .filter(p => ["CV", "DM", "VVM", "VL", "VR"].includes(p.pos))
+                        .sort((a, b) => a.att - b.att);
+                    candidates.slice(0, 2).forEach(p => { p.pos = "K"; });
+                }
                 // --------------------------------------------
                 
                 // 2. Merge complexe objecten apart (zodat nieuwe features niet overschreven worden)
@@ -84,6 +101,11 @@ export const Store = {
                 const hasSchedule = this.state.schedules && this.state.schedules[1];
                 if(hasComps && !hasSchedule) {
                     Engine.generateAllSchedules();
+                }
+
+                // 4b. Opstelling: genereer automatisch als die nog niet bestaat
+                if(this.state.team && this.state.team.length > 0 && !this.state.lineup) {
+                    Engine.autoPickLineup();
                 }
 
                 // 5. UI check: als we op 'welcome' staan maar wel een team hebben -> ga naar dashboard
@@ -131,6 +153,7 @@ export const Store = {
         
         this.state.competitions = Engine.generateAllDivisions();
         Engine.generateAllSchedules();
+        Engine.autoPickLineup();
         Engine.generateSponsorOffers();
         Engine.initCupSeason();
 
@@ -147,6 +170,23 @@ export const Store = {
     wipe() {
         localStorage.removeItem("ovm_save_v36");
         location.reload();
+    },
+
+    // Save als tekst-code (voor overzetten naar een ander apparaat)
+    exportSave() {
+        return btoa(unescape(encodeURIComponent(JSON.stringify(this.state))));
+    },
+
+    importSave(code) {
+        try {
+            const json = decodeURIComponent(escape(atob((code || "").trim())));
+            const parsed = JSON.parse(json);
+            if(!parsed.club || !parsed.team) throw new Error("invalid save");
+            localStorage.setItem("ovm_save_v36", json);
+            location.reload();
+        } catch(e) {
+            UI.toast("❌ Ongeldige save-code!");
+        }
     },
 
     reset() { 

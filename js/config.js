@@ -1,9 +1,14 @@
 export const CONFIG = {
-    version: "3.8.0", 
+    version: "3.9.0", 
     gameTitle: "Online Voetbal Manager",
     startBudget: 150000,
     currency: "€",
     maxMatchdays: 34,
+
+    // Prijzengeld per plek per divisie (x aantal plekken boven laatste)
+    // Div 5 winnaar (18 teams): 14.000 * 18 = € 252.000
+    // Div 1 winnaar (18 teams): 110.000 * 18 = € 1.980.000
+    prizePerPlace: { 1: 110000, 2: 70000, 3: 40000, 4: 22000, 5: 14000 },
 
     costs: {
         stadium: [0, 100000, 250000, 500000, 1000000, 2500000, 5000000, 10000000],
@@ -17,23 +22,36 @@ export const CONFIG = {
             desc: "Gebalanceerd. Sterk tegen 4-3-3, zwak tegen 5-3-2.",
             strongAgainst: "attack",
             weakAgainst: "defense",
-            attBonus: 0, defBonus: 0 
+            attBonus: 0, defBonus: 0,
+            formation: { def: 4, mid: 4, att: 2 }
         },
         attack: { 
             name: "Aanvallend (4-3-3)", 
             desc: "Vol op de aanval. Sterk tegen 5-3-2, zwak tegen 4-4-2.",
             strongAgainst: "defense",
             weakAgainst: "neutral",
-            attBonus: 5, defBonus: -5 
+            attBonus: 5, defBonus: -5,
+            formation: { def: 4, mid: 3, att: 3 }
         },
         defense: { 
             name: "Verdedigend (5-3-2)", 
             desc: "De bus parkeren. Sterk tegen 4-4-2, zwak tegen 4-3-3.",
             strongAgainst: "neutral",
             weakAgainst: "attack",
-            attBonus: -5, defBonus: 5 
+            attBonus: -5, defBonus: 5,
+            formation: { def: 5, mid: 3, att: 2 }
         }
     },
+
+    // Positiegroepen voor de opstelling
+    positionGroups: {
+        GK: ["K"],
+        DEF: ["VL", "CV", "VR"],
+        MID: ["DM", "VVM", "CM", "CAM"],
+        ATT: ["LB", "RB", "SP"]
+    },
+
+    groupLabels: { GK: "Keeper", DEF: "Verdediging", MID: "Middenveld", ATT: "Aanval" },
 
     sponsors: {
         local: ["Bakkerij Jansen", "Garage Snel", "Café 't Hoekje", "Slagerij Henk", "Kapsalon Modern", "Visboer Urk", "Schilderbedrijf Kwast"],
@@ -100,7 +118,10 @@ export const CONFIG = {
         }
     },
 
-    positions: ["DM", "VL", "CV", "VR", "VVM", "CM", "CAM", "LB", "SP", "RB"],
+    positions: ["K", "DM", "VL", "CV", "VR", "VVM", "CM", "CAM", "LB", "SP", "RB"],
+
+    // Startselectie sjabloon: garandeert een speelbare 4-4-2 + reserves
+    squadTemplate: ["K", "K", "CV", "CV", "VL", "VR", "CV", "DM", "CM", "CM", "CAM", "VVM", "LB", "RB", "SP", "SP", "LB", "SP"],
 
     newsTemplates: {
         bigWin: [

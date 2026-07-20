@@ -12,3 +12,12 @@ document.addEventListener('DOMContentLoaded', () => {
     Store.init();
     UI.init();
 });
+
+// 3. PWA: service worker registreren (offline spelen + installeerbaar)
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(err => {
+            console.warn('Service worker registratie mislukt:', err);
+        });
+    });
+}

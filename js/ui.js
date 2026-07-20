@@ -39,6 +39,58 @@ export const UI = {
             return;
         }
 
+        // --- OPSTELLING: speler kiezen in de picker (eerst, want rows hebben ook slot-data) ---
+        const pickEl = t.closest('[data-pick-player]');
+        if(pickEl) {
+            const ov = t.closest('.modal-overlay');
+            if(ov) this.closeModal(ov);
+            Engine.assignToLineup(pickEl.dataset.slotKey, parseInt(pickEl.dataset.slotIndex), pickEl.dataset.pickPlayer);
+            return;
+        }
+
+        // --- OPSTELLING: positie op het veld aanklikken ---
+        const slotEl = t.closest('[data-slot-key]');
+        if(slotEl) {
+            this.showLineupPicker(slotEl.dataset.slotGroup, slotEl.dataset.slotKey, parseInt(slotEl.dataset.slotIndex));
+            return;
+        }
+
+        if(t.closest('#btn-auto-lineup')) {
+            Engine.autoPickLineup();
+            Store.save();
+            this.render();
+            this.toast("Beste opstelling gekozen! ✨");
+            return;
+        }
+
+        // --- SAVE EXPORT / IMPORT (Instellingen) ---
+        if(t.closest('#btn-export-save')) {
+            const area = document.getElementById('export-area');
+            if(area) {
+                area.value = Store.exportSave();
+                area.style.display = 'block';
+                area.select();
+            }
+            return;
+        }
+        if(t.closest('#btn-copy-save')) {
+            const area = document.getElementById('export-area');
+            if(area && area.value) {
+                area.select();
+                navigator.clipboard?.writeText(area.value).then(() => this.toast("Save-code gekopieerd! 📋"));
+            }
+            return;
+        }
+        if(t.closest('#btn-import-save')) {
+            const area = document.getElementById('import-area');
+            if(area && area.value.trim()) {
+                this.confirm("Save importeren?", "Dit overschrijft je huidige spel. Doorgaan?", () => Store.importSave(area.value), { yesLabel: "Importeer" });
+            } else {
+                this.toast("Plak eerst een save-code.");
+            }
+            return;
+        }
+
         // --- DYNAMISCHE BUTTONS (Class Check met closest) ---
         // We zoeken naar het dichtstbijzijnde <button> element
         const btn = t.closest('button');
@@ -123,9 +175,118 @@ export const UI = {
         const next = this.modalQueue.shift();
         if(!next) return;
         this.modalOpen = true;
+        if(next.liveMatch) {
+            this._buildLiveMatch(next.liveMatch, next.meta || {});
+            return;
+        }
         const { overlay, inputEl } = this._buildModal(next);
         document.body.appendChild(overlay);
         if(inputEl) inputEl.focus();
+    },
+
+    // --- LIVE WEDSTRIJD WEERGAVE ---
+    // Speelt een reeds gesimuleerde wedstrijd visueel af: tikkende klok,
+    // score die live bijwerkt en events die verschijnen op hun minuut.
+    showLiveMatch(matchEntry, meta) {
+        this.modalQueue.push({ liveMatch: matchEntry, meta });
+        this._processModalQueue();
+    },
+
+    _buildLiveMatch(m, meta) {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+
+        const homeBadge = UTILS.getClubBadge(m.home, 40);
+        const awayBadge = UTILS.getClubBadge(m.away, 40);
+
+        const box = document.createElement('div');
+        box.className = 'modal-content live-box';
+        box.innerHTML = `
+            <div class="live-competition">${meta.competition || 'Competitie'}</div>
+            <div class="live-scoreboard">
+                <div class="live-team">${homeBadge}<span class="live-team-name">${m.home}</span></div>
+                <div class="live-score"><span id="live-h">0</span> - <span id="live-a">0</span></div>
+                <div class="live-team">${awayBadge}<span class="live-team-name">${m.away}</span></div>
+            </div>
+            <div class="live-clock-row">
+                <div class="live-minute" id="live-minute">0'</div>
+                <div class="live-progress"><div class="live-progress-fill" id="live-fill"></div></div>
+            </div>
+            <div class="live-feed" id="live-feed"><div class="live-kickoff">🏟️ De wedstrijd begint...</div></div>
+            <div class="modal-footer">
+                <button class="secondary" id="live-speed">⏩ Sneller</button>
+                <button class="secondary" id="live-skip">Overslaan</button>
+                <button class="primary" id="live-done" style="display:none">Doorgaan</button>
+            </div>`;
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        // Events voorbereiden (kunnen strings zijn uit oude saves)
+        const events = (m.events || []).map(e => typeof e === 'string' ? { min: parseInt(e.match(/(\d+)'/)?.[1] || 0), type: 'other', side: 'home', text: e } : e);
+        events.sort((a, b) => a.min - b.min);
+
+        let minute = 0;
+        let speed = 140; // ms per minuut (~13 sec totaal)
+        let eventIdx = 0;
+        let hGoals = 0, aGoals = 0;
+        const elMin = box.querySelector('#live-minute');
+        const elFill = box.querySelector('#live-fill');
+        const elH = box.querySelector('#live-h');
+        const elA = box.querySelector('#live-a');
+        const feed = box.querySelector('#live-feed');
+        const btnSpeed = box.querySelector('#live-speed');
+        const btnSkip = box.querySelector('#live-skip');
+        const btnDone = box.querySelector('#live-done');
+        let timer = null;
+
+        const applyEvent = (ev) => {
+            if(ev.type === 'goal') {
+                if(ev.side === 'home') hGoals++; else aGoals++;
+                elH.textContent = hGoals; elA.textContent = aGoals;
+            }
+            const row = document.createElement('div');
+            row.className = `live-event live-event-${ev.type || 'other'}`;
+            row.textContent = ev.text;
+            feed.prepend(row);
+        };
+
+        const finish = () => {
+            clearInterval(timer);
+            minute = 90;
+            elMin.textContent = "90' — Einde";
+            elFill.style.width = "100%";
+            while(eventIdx < events.length) applyEvent(events[eventIdx++]);
+            // Eindscore forceren (voor het geval events niet compleet zijn)
+            elH.textContent = m.score[0]; elA.textContent = m.score[1];
+            if(m.note) {
+                const noteRow = document.createElement('div');
+                noteRow.className = 'live-event live-note';
+                noteRow.textContent = m.note;
+                feed.prepend(noteRow);
+            }
+            btnSpeed.style.display = 'none';
+            btnSkip.style.display = 'none';
+            btnDone.style.display = 'inline-block';
+        };
+
+        const tick = () => {
+            minute++;
+            if(minute > 90) { finish(); return; }
+            elMin.textContent = minute + "'";
+            elFill.style.width = (minute / 90 * 100) + "%";
+            while(eventIdx < events.length && events[eventIdx].min <= minute) {
+                applyEvent(events[eventIdx++]);
+            }
+        };
+
+        timer = setInterval(tick, speed);
+        btnSpeed.onclick = () => {
+            clearInterval(timer);
+            speed = Math.max(25, speed / 2.5);
+            timer = setInterval(tick, speed);
+        };
+        btnSkip.onclick = finish;
+        btnDone.onclick = () => this.closeModal(overlay);
     },
 
     closeModal(overlay) {
@@ -161,6 +322,48 @@ export const UI = {
     // Modal zonder annuleer-optie (bv. game over)
     forcedModal(title, html, buttonLabel, onClick) {
         this.modalQueue.push({ title, html, buttons: [{ label: buttonLabel, class: 'danger', onClick }] });
+        this._processModalQueue();
+    },
+
+    // Spelerskeuze-modal voor een opstellingsplek
+    showLineupPicker(group, key, index) {
+        const groupLabel = { GK: "Keeper", DEF: "Verdediger", MID: "Middenvelder", ATT: "Aanvaller" }[group] || group;
+        const l = Store.state.lineup || {};
+        const inLineup = new Set([l.gk, ...(l.def||[]), ...(l.mid||[]), ...(l.att||[])].filter(Boolean));
+
+        const sorted = [...Store.state.team].sort((a, b) => Engine.effectiveOvr(b, group) - Engine.effectiveOvr(a, group));
+
+        let rowsHtml = "";
+        sorted.forEach(p => {
+            const eff = Engine.effectiveOvr(p, group);
+            const outOfPos = eff < p.ovr;
+            const available = Engine.isAvailable(p);
+            
+            let status = "";
+            if(p.injuredWeeks > 0) status = `<span style="color:#ef4444; font-size:11px">🚑 ${p.injuredWeeks - 1 > 0 ? (p.injuredWeeks - 1) + ' wk' : 'bijna fit'}</span>`;
+            else if(p.suspended > 0) status = `<span style="color:#ef4444; font-size:11px">🟥 geschorst</span>`;
+            else if(inLineup.has(p.id)) status = `<span class="muted" style="font-size:11px">in basis</span>`;
+
+            const effHtml = outOfPos 
+                ? `<span style="color:#f97316">${eff}</span> <span class="muted" style="font-size:10px">(van ${p.ovr})</span>` 
+                : `<strong style="color:var(--accent)">${eff}</strong>`;
+
+            const disabled = !available ? 'style="opacity:0.45; pointer-events:none"' : '';
+            rowsHtml += `
+            <div class="player-select-row" data-pick-player="${p.id}" data-slot-key="${key}" data-slot-index="${index}" ${disabled}>
+                <div style="display:flex; align-items:center; gap:8px">
+                    ${UTILS.getPlayerFace(p.id, 26)}
+                    <div><strong>${p.flag || ''} ${p.name}</strong> <span class="pill" style="margin-left:4px">${p.pos}</span></div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px">${status} ${effHtml}</div>
+            </div>`;
+        });
+
+        this.modalQueue.push({
+            title: `Kies ${groupLabel}`,
+            html: `<div style="max-height:50vh; overflow-y:auto">${rowsHtml}</div>`,
+            buttons: [{ label: 'Sluiten', class: 'secondary' }]
+        });
         this._processModalQueue();
     },
 
@@ -240,6 +443,7 @@ export const UI = {
             case 'finance': cont.appendChild(Views.Finance()); break;
             case 'history': cont.appendChild(Views.History()); break;
             case 'news': cont.appendChild(Views.News()); break;
+            case 'settings': cont.appendChild(Views.Settings()); break;
             case 'beker': cont.appendChild(Views.Cup()); break;
             default: cont.innerHTML = "<p>Pagina niet gevonden</p>";
         }
@@ -263,7 +467,8 @@ export const UI = {
             {id:'sponsors',i:'🤝',l:'Sponsors'}, 
             {id:'finance',i:'📊',l:'Financiën'},
             {id:'history',i:'📜',l:'Historie'},
-            {id:'news', i:'📰', l:'Nieuws'}
+            {id:'news', i:'📰', l:'Nieuws'},
+            {id:'settings', i:'⚙️', l:'Instellingen'}
         ];
 
         // Voeg beker alleen toe als je divisie hoog genoeg is (Div 1, 2 of 3)

@@ -6,8 +6,11 @@ import { UI } from './ui.js';
 export const Engine = {
     generateSquad(n) { 
         let s=[]; 
-        // Maak standaard spelers
-        for(let i=0;i<n;i++) s.push(this.createPlayer(i<2?"DM":null)); 
+        // Volg het sjabloon: 2 keepers + een dekkende veldbezetting
+        for(let i=0;i<n;i++) {
+            const pos = CONFIG.squadTemplate[i] || null;
+            s.push(this.createPlayer(pos));
+        }
         
         // NERF: Verzwak dit team omdat het een startende club in Div 5 is
         s.forEach(p => {
@@ -32,7 +35,12 @@ export const Engine = {
     recalcPlayer(p) {
         p.ovr = Math.round((p.att + p.def + p.spd) / 3);
         p.value = Math.round(p.ovr * p.ovr * 25);
-        p.wage = Math.round(p.value / 250);
+        p.wage = this.calcWage(p);
+    },
+
+    // Salaris: schaalt met waarde én rating, zodat lonen echt drukken op het budget
+    calcWage(p) {
+        return Math.round(p.value / 100 + p.ovr * 10);
     },
 
     isYouthTeam(name) {
@@ -75,10 +83,18 @@ createPlayer(posOverride, ageOverride) {
         let att, def, spd;
         const rand = (min, max) => base + UTILS.rand(min, max);
 
-        if(["SP", "LB", "RB", "VL", "VR"].includes(pos)) {
+        if(pos === "K") {
+            // Keeper: 'def' staat voor keeperskwaliteit
+            def = rand(15, 30); spd = rand(-5, 10); att = rand(-25, -10);
+        } else if(["SP", "LB", "RB"].includes(pos)) {
+            // Aanvallers (spits + buitenspelers)
             att = rand(10, 30); spd = rand(5, 25); def = rand(-10, 10);
-        } else if(["CV", "VVM", "DM"].includes(pos)) {
+        } else if(["CV", "VL", "VR"].includes(pos)) {
+            // Verdedigers (centraal + backs)
             def = rand(10, 30); spd = rand(-5, 15); att = rand(-10, 10);
+        } else if(["DM", "VVM"].includes(pos)) {
+            // Verdedigende middenvelders
+            def = rand(5, 25); spd = rand(0, 15); att = rand(-5, 10);
         } else {
             att = rand(0, 20); def = rand(0, 20); spd = rand(0, 20);
         }
@@ -88,17 +104,189 @@ createPlayer(posOverride, ageOverride) {
 
         const ovr = Math.round((att + def + spd) / 3);
         const val = Math.round(ovr*ovr*25 + UTILS.rand(0,10000));
-        const wage = Math.round(val/250); 
-        const contract = UTILS.rand(20, 50);
+        const contractYears = UTILS.rand(1, 4);
 
         // --- STAP 4: RETURN OBJECT MET VLAG ---
-        return { 
+        const p = { 
             id: UTILS.rid(), 
             name: fullName,     // De gekozen naam
             nat: code,          // De landcode (bijv "NL")
             flag: nationData.flag, // De emoji vlag (bijv "🇳🇱")
-            age, pos, ovr, att, def, spd, value: val, wage, contract 
+            age, pos, ovr, att, def, spd, value: val, wage: 0, contractYears,
+            injuredWeeks: 0, suspended: 0
         }; 
+        p.wage = this.calcWage(p);
+        return p;
+    },
+
+    // --- OPSTELLING & FORMATIE ---
+
+    getFormation() {
+        return CONFIG.tactics[Store.state.club.tactic].formation;
+    },
+
+    getPosGroup(pos) {
+        for(const g in CONFIG.positionGroups) {
+            if(CONFIG.positionGroups[g].includes(pos)) return g;
+        }
+        return "MID";
+    },
+
+    isAvailable(p) {
+        return (p.injuredWeeks || 0) <= 0 && (p.suspended || 0) <= 0;
+    },
+
+    // Effectieve rating van een speler op een plek in de opstelling.
+    // Buiten positie spelen kost rating; een veldspeler op keeper is een ramp.
+    effectiveOvr(p, slotGroup) {
+        const pGroup = this.getPosGroup(p.pos);
+        if(pGroup === slotGroup) return p.ovr;
+        if(slotGroup === "GK" || pGroup === "GK") return Math.round(p.ovr * 0.5);
+        // Naastgelegen linie (DEF<->MID of MID<->ATT) kost minder dan DEF<->ATT
+        const order = { DEF: 0, MID: 1, ATT: 2 };
+        const dist = Math.abs(order[pGroup] - order[slotGroup]);
+        return Math.round(p.ovr * (dist >= 2 ? 0.7 : 0.85));
+    },
+
+    // Kies automatisch de beste 11 voor de huidige formatie
+    autoPickLineup() {
+        const f = this.getFormation();
+        const pool = Store.state.team.filter(p => this.isAvailable(p));
+        const lineup = { gk: null, def: [], mid: [], att: [] };
+        const used = new Set();
+
+        const pickBest = (group, count, target) => {
+            // Eerst spelers die écht op deze positie spelen, beste eerst
+            const natives = pool.filter(p => !used.has(p.id) && this.getPosGroup(p.pos) === group)
+                                .sort((a,b) => b.ovr - a.ovr);
+            for(const p of natives) {
+                if(target.length >= count) break;
+                target.push(p.id); used.add(p.id);
+            }
+        };
+
+        const gkSlot = [];
+        pickBest("GK", 1, gkSlot);
+        pickBest("DEF", f.def, lineup.def);
+        pickBest("MID", f.mid, lineup.mid);
+        pickBest("ATT", f.att, lineup.att);
+        lineup.gk = gkSlot[0] || null;
+
+        // Vul gaten met de beste overgebleven spelers (op effectieve rating)
+        const fillGap = (group, arr, count) => {
+            while(arr.length < count) {
+                const rest = pool.filter(p => !used.has(p.id))
+                                 .sort((a,b) => this.effectiveOvr(b, group) - this.effectiveOvr(a, group));
+                if(rest.length === 0) break;
+                arr.push(rest[0].id); used.add(rest[0].id);
+            }
+        };
+        if(!lineup.gk) {
+            const rest = pool.filter(p => !used.has(p.id))
+                             .sort((a,b) => this.effectiveOvr(b, "GK") - this.effectiveOvr(a, "GK"));
+            if(rest.length > 0) { lineup.gk = rest[0].id; used.add(rest[0].id); }
+        }
+        fillGap("DEF", lineup.def, f.def);
+        fillGap("MID", lineup.mid, f.mid);
+        fillGap("ATT", lineup.att, f.att);
+
+        Store.state.lineup = lineup;
+        return lineup;
+    },
+
+    // Repareer de opstelling: verwijder verkochte/geblesseerde/geschorste spelers,
+    // pas groepsgroottes aan de formatie aan en vul gaten automatisch
+    validateLineup() {
+        if(!Store.state.lineup) return this.autoPickLineup();
+        
+        const l = Store.state.lineup;
+        const f = this.getFormation();
+        const valid = (id) => {
+            if(!id) return false;
+            const p = Store.state.team.find(x => x.id === id);
+            return !!p && this.isAvailable(p);
+        };
+
+        if(!valid(l.gk)) l.gk = null;
+        l.def = (l.def || []).filter(valid).slice(0, f.def);
+        l.mid = (l.mid || []).filter(valid).slice(0, f.mid);
+        l.att = (l.att || []).filter(valid).slice(0, f.att);
+
+        // Dubbele ids eruit (kan door migratie)
+        const seen = new Set();
+        const dedupe = (id) => { if(!id || seen.has(id)) return false; seen.add(id); return true; };
+        if(l.gk && !dedupe(l.gk)) l.gk = null;
+        l.def = l.def.filter(dedupe);
+        l.mid = l.mid.filter(dedupe);
+        l.att = l.att.filter(dedupe);
+
+        // Gaten vullen
+        const pool = Store.state.team.filter(p => this.isAvailable(p) && !seen.has(p.id));
+        const fill = (group, arr, count) => {
+            while(arr.length < count && pool.length > 0) {
+                pool.sort((a,b) => this.effectiveOvr(b, group) - this.effectiveOvr(a, group));
+                const p = pool.shift();
+                arr.push(p.id); seen.add(p.id);
+            }
+        };
+        if(!l.gk) {
+            pool.sort((a,b) => this.effectiveOvr(b, "GK") - this.effectiveOvr(a, "GK"));
+            const p = pool.shift();
+            if(p) { l.gk = p.id; seen.add(p.id); }
+        }
+        fill("DEF", l.def, f.def);
+        fill("MID", l.mid, f.mid);
+        fill("ATT", l.att, f.att);
+        
+        return l;
+    },
+
+    // Zet een speler op een plek in de opstelling (haalt hem weg van zijn oude plek)
+    assignToLineup(group, index, playerId) {
+        const l = Store.state.lineup || this.autoPickLineup();
+        const p = Store.state.team.find(x => x.id === playerId);
+        if(!p) return;
+        if(!this.isAvailable(p)) return UI.toast("Deze speler is niet beschikbaar!");
+
+        // Verwijder van huidige plek
+        if(l.gk === playerId) l.gk = null;
+        ["def","mid","att"].forEach(g => { l[g] = l[g].map(id => id === playerId ? null : id); });
+
+        // Zet neer (de oude bezetter gaat eruit)
+        if(group === "gk") l.gk = playerId;
+        else l[group][index] = playerId;
+
+        Store.save();
+        UI.render();
+    },
+
+    // Alle slots als platte lijst: [{group, id}]
+    getLineupSlots() {
+        const l = this.validateLineup();
+        const f = this.getFormation();
+        const slots = [{ group: "GK", key: "gk", index: 0, id: l.gk }];
+        for(let i=0; i<f.def; i++) slots.push({ group: "DEF", key: "def", index: i, id: l.def[i] || null });
+        for(let i=0; i<f.mid; i++) slots.push({ group: "MID", key: "mid", index: i, id: l.mid[i] || null });
+        for(let i=0; i<f.att; i++) slots.push({ group: "ATT", key: "att", index: i, id: l.att[i] || null });
+        return slots;
+    },
+
+    // Teamsterkte = gemiddelde effectieve rating van de opgestelde 11
+    calculatePlayerTeamStrength() {
+        if(Store.state.team.length === 0) return 30;
+        const slots = this.getLineupSlots();
+        let total = 0;
+        slots.forEach(s => {
+            const p = Store.state.team.find(x => x.id === s.id);
+            total += p ? this.effectiveOvr(p, s.group) : 20; // leeg gat = zwakke amateur
+        });
+        return Math.round(total / slots.length);
+    },
+
+    // De opgestelde spelers (voor scorers/blessures)
+    getLineupPlayers() {
+        const slots = this.getLineupSlots();
+        return slots.map(s => Store.state.team.find(x => x.id === s.id)).filter(Boolean);
     },
 
     // --- TACTIEK SYSTEEM (Rock-Paper-Scissors) ---
@@ -178,7 +366,7 @@ createPlayer(posOverride, ageOverride) {
         talent.def = clamp(talent.def * scale);
         talent.spd = clamp(talent.spd * scale);
         this.recalcPlayer(talent);
-        talent.value = 10000; talent.wage = 100;
+        talent.value = 10000; talent.wage = 100; talent.contractYears = 3;
         Store.state.youthAcademy.push(talent);
         Store.save(); UI.render(); UI.toast("Talent gevonden!");
     },
@@ -269,6 +457,7 @@ placeBid(id) {
                 else welcomeMsg = `🤝 "De deal is rond."`;
 
                 Store.state.club.budget -= bid;
+                p.contractYears = Math.max(2, p.contractYears || 2); // Nieuwe aankoop tekent minimaal 2 seizoenen
                 Store.state.team.push(p); Store.state.market = Store.state.market.filter(x=>x.id !== id);
                 Store.save(); UI.render(); 
                 UI.alert("✅ Bod geaccepteerd!", `${welcomeMsg}<br><br><strong>${p.name}</strong> is speler van ${Store.state.club.name}.`);
@@ -282,20 +471,23 @@ placeBid(id) {
         const p = Store.state.team.find(x => x.id === id);
         if(!p) return;
 
-        // Formule: Tekengeld = 10% van marktwaarde.
-        // Je krijgt er 25 weken bij.
-        const cost = Math.round(p.value * 0.10);
+        // Tekengeld = 15% van marktwaarde, contract +2 seizoenen, salaris +15%
+        const cost = Math.round(p.value * 0.15);
+        const newWage = Math.round(p.wage * 1.15);
         
         UI.confirm(
             `✍️ Contract verlengen`,
-            `Contractverlenging voor <strong>${p.name}</strong>?<br><br>Huidig: ${p.contract} weken<br>Nieuw: +25 weken<br><br>Kosten: <strong>${UTILS.fmtMoney(cost)}</strong>`,
+            `Contractverlenging voor <strong>${p.name}</strong>?<br><br>
+             Huidig contract: <strong>${p.contractYears} seizoen(en)</strong><br>
+             Nieuw contract: <strong>+2 seizoenen</strong><br>
+             Nieuw salaris: <strong>${UTILS.fmtMoney(newWage)}/wk</strong> (was ${UTILS.fmtMoney(p.wage)})<br><br>
+             Tekengeld: <strong>${UTILS.fmtMoney(cost)}</strong>`,
             () => {
                 if(Store.state.club.budget < cost) return UI.toast("Onvoldoende budget!");
                 
                 Store.state.club.budget -= cost;
-                p.contract += 25;
-                // Speler wordt ook iets meer waard en vraagt meer salaris na verlenging
-                p.wage = Math.round(p.wage * 1.1); 
+                p.contractYears += 2;
+                p.wage = newWage;
                 
                 Store.save();
                 UI.render();
@@ -512,9 +704,6 @@ playCupMatch() {
         if(day === 15) roundName = "Halve Finale";
         if(day === 20) roundName = "FINALE";
 
-        // Formatteer de events voor de popup
-        let eventStr = matchData.events.length > 0 ? "<br><br><strong>Highlights:</strong><br>" + matchData.events.join("<br>") : "";
-
         // 4. Opslaan in historie
         c.history.push({ 
             round: roundName, 
@@ -525,26 +714,38 @@ playCupMatch() {
             events: matchData.events 
         });
 
-        // 5. Resultaat afhandelen
+        // 5. Live weergave van de bekerwedstrijd, daarna het resultaat
+        UI.showLiveMatch({
+            home: Store.state.club.name,
+            away: opp.name,
+            score: res,
+            events: matchData.events,
+            note: matchData.note
+        }, { competition: `KNVB Beker — ${roundName}` });
+
+        // 6. Resultaat afhandelen
         if(!win) {
             c.inTournament = false;
-            UI.alert(`🏆 KNVB Beker - ${roundName}`, `${msg}${eventStr}<br><br>Je ligt uit het toernooi.`);
+            UI.alert(`🏆 KNVB Beker - ${roundName}`, `${msg}<br><br>Je ligt uit het toernooi.`);
         } else {
             if(roundName === "FINALE") {
                 Store.state.club.budget += 250000;
                 c.inTournament = false;
-                UI.alert("🏆🏆🏆 Bekerwinnaar!", `Je wint de KNVB Beker!${eventStr}<br><br>Bonus: <strong>€ 250.000</strong>`);
+                UI.alert("🏆🏆🏆 Bekerwinnaar!", `Je wint de KNVB Beker!<br><br>Bonus: <strong>€ 250.000</strong>`);
             } else {
                 // Volgende ronde bijwerken zodat de Beker-pagina klopt
                 c.nextRound = cupDays.find(d => d > day) || 0;
-                UI.alert(`🏆 KNVB Beker - ${roundName}`, `${msg}${eventStr}<br><br>Je bent door naar de volgende ronde!`);
+                UI.alert(`🏆 KNVB Beker - ${roundName}`, `${msg}<br><br>Je bent door naar de volgende ronde!`);
             }
         }
     },
     
-    calculatePlayerTeamStrength() { const s=Store.state.team; if(s.length===0)return 30; const b=s.slice().sort((a,b)=>b.ovr-a.ovr).slice(0,11); return Math.round(b.reduce((a,c)=>a+c.ovr,0)/b.length); },
     upgradeFacility(type) { const lvl=Store.state.club.facilities[type]; if(lvl>=8)return UI.toast("Max level"); const c=CONFIG.costs[type][lvl]; if(Store.state.club.budget<c)return UI.toast("Te weinig budget"); Store.state.club.budget-=c; Store.state.club.facilities[type]++; Store.save(); UI.render(); UI.toast("Upgrade!"); },
-    setTactic(key) { Store.state.club.tactic=key; Store.save(); UI.render(); UI.toast(`Tactiek: ${CONFIG.tactics[key].name}`); },
+    setTactic(key) { 
+        Store.state.club.tactic=key; 
+        this.validateLineup(); // formatie kan veranderd zijn (bv. 4-4-2 -> 5-3-2)
+        Store.save(); UI.render(); UI.toast(`Tactiek: ${CONFIG.tactics[key].name}`); 
+    },
 
 processMatchday() {
         // 0. Game over? Dan kan er niet verder gespeeld worden
@@ -553,32 +754,16 @@ processMatchday() {
         // 1. Check of seizoen voorbij is
         if(Store.state.game.day > this.getSeasonLength()) { this.endSeason(); return; }
         
-        // 2. Voorbereiding
+        // 2. Voorbereiding: opstelling repareren (blessures/schorsingen/verkopen)
+        //    en teamsterkte berekenen op basis van de opgestelde 11
         Store.state.results = []; 
+        this.validateLineup();
         const me = Store.state.competitions[Store.state.club.division].find(c => c.id === Store.state.club.id);
         if(me) me.strength = this.calculatePlayerTeamStrength();
 
         let report = { income: 0, expenses: 0, breakdown: [] };
 
-        // 3. CONTRACTEN AFTELLEN (vóór de bekerwedstrijd, zodat een noodstop
-        //    niet kan zorgen dat dezelfde bekerronde 2x gespeeld wordt)
-        Store.state.team.forEach(p => p.contract--);
-
-        const leaving = Store.state.team.filter(p => p.contract <= 0);
-        if(leaving.length > 0) {
-            const leavingIds = leaving.map(p => p.id);
-            Store.state.team = Store.state.team.filter(p => p.contract > 0);
-
-            // Verwijder ze ook uit de training selectie en van de transferlijst
-            if(Store.state.training && Store.state.training.selected) {
-                Store.state.training.selected = Store.state.training.selected.filter(id => !leavingIds.includes(id));
-            }
-            Store.state.transferList = Store.state.transferList.filter(id => !leavingIds.includes(id));
-
-            UI.alert("⚠️ Contract verlopen!", `De volgende spelers hebben de club transfervrij verlaten:<br>- ${leaving.map(p => p.name).join("<br>- ")}`);
-        }
-
-        // 3.5. CRITICAL CHECK: Hebben we nog wel 11 spelers?
+        // 3. CRITICAL CHECK: Hebben we nog wel 11 spelers?
         if(Store.state.team.length < 11) {
             // Noodgreep: Voeg 2 zwakke jeugdspelers toe zodat de game niet vastloopt
             for(let i = 0; i < 2; i++) {
@@ -586,7 +771,7 @@ processMatchday() {
                 this.applyStatPenalty(emergency, 20); // Echt zwakke amateurs
                 Store.state.team.push(emergency);
             }
-            UI.alert("⛔ Te weinig spelers!", "Je hebt minder dan 11 spelers door verlopen contracten of verkopen.<br><br>Je krijgt noodgedwongen 2 amateurspelers uit de jeugd. Regel snel versterking!");
+            UI.alert("⛔ Te weinig spelers!", "Je hebt minder dan 11 spelers.<br><br>Je krijgt noodgedwongen 2 amateurspelers uit de jeugd. Regel snel versterking!");
             Store.save();
             UI.render();
             return; // Stop de week simulatie, speler moet eerst managen
@@ -633,7 +818,13 @@ processMatchday() {
         // 8. Nieuws genereren over deze speelronde
         this.generateNews();
 
-        // 9. Afronding & Training Reset
+        // 9. Blessures & schorsingen aftellen (na de wedstrijden van deze week)
+        Store.state.team.forEach(p => {
+            if(p.injuredWeeks > 0) p.injuredWeeks--;
+            if(p.suspended > 0) p.suspended--;
+        });
+
+        // 10. Afronding & Training Reset
         Store.state.finance.lastWeek = { ...report, profit: report.income - report.expenses };
         
         if(Store.state.training) Store.state.training.done = false;
@@ -642,6 +833,12 @@ processMatchday() {
         Store.state.game.day++; 
         Store.save(); 
         UI.render(); 
+
+        // 11. LIVE WEDSTRIJD: speel jouw wedstrijd van deze ronde visueel af
+        const myMatch = Store.state.results.find(r => r.isYou);
+        if(myMatch) {
+            UI.showLiveMatch(myMatch, { competition: UTILS.getLeagueName(Store.state.club.division) });
+        }
         UI.toast(`Ronde ${Store.state.game.day-1} voltooid.`);
     },
 
@@ -719,7 +916,10 @@ simulateRound(divNr, report) {
             
             if(h.id === Store.state.club.id) {
                 // Ticket inkomsten (alleen bij thuiswedstrijden)
-                const inc = Math.round(500 * Math.pow(1.6, Store.state.club.facilities.stadium) * 0.85 * 18 * 1.2);
+                // Schaalt met divisie (meer publiek) en stadionniveau
+                const div = Store.state.club.division;
+                const stadium = Store.state.club.facilities.stadium;
+                const inc = Math.round(4000 * (6 - div) * (1 + 0.35 * (stadium - 1)));
                 Store.state.club.budget += inc;
                 if(report) { report.income += inc; report.breakdown.push({txt:"Tickets", amt:inc}); }
             }
@@ -833,13 +1033,15 @@ generateNews() {
         
         let candidates = [];
         team.forEach(p => {
+            if(p.pos === "K") return; // Keepers scoren niet
             // Gewicht: Aanvallers tellen zwaarder mee
-            let weight = p.att;
-            if(["SP", "RB", "LB", "VL", "VR"].includes(p.pos)) weight *= 3;
+            let weight = Math.max(1, p.att);
+            if(["SP", "RB", "LB"].includes(p.pos)) weight *= 3;
             if(["CAM", "CM"].includes(p.pos)) weight *= 2;
             
             candidates.push({ id: p.id, name: p.name, weight: weight });
         });
+        if(candidates.length === 0) return team[0].name;
 
         // Totale 'score-kans' massa
         const totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
@@ -863,6 +1065,9 @@ generateNews() {
         let maxSlots = 2; // Level 1 (basis)
         if(lvl >= 2) maxSlots = 3; // Level 2 & 3
         if(lvl >= 4) maxSlots = 4; // Level 4 & 5+
+
+        const player = Store.state.team.find(p => p.id === id);
+        if(player && player.injuredWeeks > 0) return UI.toast("Geblesseerde spelers kunnen niet trainen!");
 
         const sel = Store.state.training.selected;
         if(sel.includes(id)) {
@@ -920,15 +1125,16 @@ generateNews() {
     },
 
     // --- MATCH ENGINE ---
-    // Simuleert een wedstrijd in blokken van 10 minuten met events.
-    // Als de speler meedoet wordt ook het tactiek-systeem (steen-papier-schaar)
-    // toegepast en een 'note' teruggegeven voor in de UI.
+    // Simuleert een wedstrijd per minuut met gestructureerde events
+    // ({min, type, side, text}) zodat de live-weergave ze kan afspelen.
+    // Blessures en rode kaarten voor JOUW spelers hebben echte gevolgen.
     playMatch(h, a) {
         const isPlayerHome = h.id === Store.state.club.id;
         const isPlayerAway = a.id === Store.state.club.id;
+        const playerInvolved = isPlayerHome || isPlayerAway;
 
-        let homeSquad = isPlayerHome ? Store.state.team : []; 
-        let awaySquad = isPlayerAway ? Store.state.team : [];
+        // De opgestelde 11 (voor scorers, blessures en kaarten)
+        const myLineup = playerInvolved ? this.getLineupPlayers() : [];
 
         // Basis sterktes + klein thuisvoordeel voor iedereen
         let hStr = h.strength + 3; 
@@ -940,7 +1146,7 @@ generateNews() {
         // --- TACTIEK: steen-papier-schaar tegen een random AI tactiek ---
         let note = "";
         let myTacConfig = null;
-        if(isPlayerHome || isPlayerAway) {
+        if(playerInvolved) {
             const myTac = Store.state.club.tactic;
             myTacConfig = CONFIG.tactics[myTac];
             const aiTac = UTILS.choice(Object.keys(CONFIG.tactics));
@@ -958,6 +1164,10 @@ generateNews() {
         let myAtt = 0, myDef = 0;
         if(myTacConfig) { myAtt = myTacConfig.attBonus; myDef = myTacConfig.defBonus; }
 
+        // Medische staf: lagere blessurekans en kortere uitval
+        const medical = Store.state.club.facilities.medical;
+        const injuryChance = Math.max(0.002, 0.012 - medical * 0.001);
+
         // --- DE SIMULATIE (9 blokken van 10 minuten) ---
         let hGoals = 0;
         let aGoals = 0;
@@ -965,8 +1175,12 @@ generateNews() {
         
         let hRed = false;
         let aRed = false;
+        const alreadyHurt = new Set();
 
-        for(let minute = 10; minute <= 90; minute += 10) {
+        for(let block = 10; block <= 90; block += 10) {
+            // Events krijgen een 'echte' minuut binnen dit blok
+            const minute = block - UTILS.rand(0, 9);
+            
             // Rood nadeel (Rood = 30% krachtverlies)
             let currH = hRed ? hStr * 0.7 : hStr;
             let currA = aRed ? aStr * 0.7 : aStr;
@@ -983,36 +1197,55 @@ generateNews() {
             // Thuis scoort?
             if(Math.random() < hChance) {
                 hGoals++;
-                const scorer = isPlayerHome ? this.pickScorer(homeSquad) : UTILS.genName().split(" ")[1]; // Alleen achternaam voor AI
-                events.push(`⚽ ${minute}' ${scorer}`);
+                const scorer = isPlayerHome ? this.pickScorer(myLineup) : UTILS.genName().split(" ")[1]; // Alleen achternaam voor AI
+                events.push({ min: minute, type: 'goal', side: 'home', text: `⚽ ${minute}' Goal: ${scorer}` });
             }
 
             // Uit scoort?
             if(Math.random() < aChance) {
                 aGoals++;
-                const scorer = isPlayerAway ? this.pickScorer(awaySquad) : UTILS.genName().split(" ")[1];
-                events.push(`⚽ ${minute}' ${scorer}`);
+                const scorer = isPlayerAway ? this.pickScorer(myLineup) : UTILS.genName().split(" ")[1];
+                events.push({ min: minute, type: 'goal', side: 'away', text: `⚽ ${minute}' Goal: ${scorer}` });
             }
 
             // 2. KANS OP ROOD (Zeer klein, maar grote impact)
             if(!hRed && Math.random() < 0.005) { // 0.5% kans per 10 min
                 hRed = true;
-                events.push(`🟥 ${minute}' Rode kaart (Thuis)`);
+                let txt = `🟥 ${minute}' Rode kaart (thuisploeg)`;
+                if(isPlayerHome && myLineup.length > 0) {
+                    const sinner = UTILS.choice(myLineup);
+                    sinner.suspended = 2; // wordt na deze week 1 -> mist volgende wedstrijd
+                    txt = `🟥 ${minute}' Rode kaart: ${sinner.name} (1 duel geschorst)`;
+                }
+                events.push({ min: minute, type: 'red', side: 'home', text: txt });
             }
             if(!aRed && Math.random() < 0.005) {
                 aRed = true;
-                events.push(`🟥 ${minute}' Rode kaart (Uit)`);
+                let txt = `🟥 ${minute}' Rode kaart (uitploeg)`;
+                if(isPlayerAway && myLineup.length > 0) {
+                    const sinner = UTILS.choice(myLineup);
+                    sinner.suspended = 2;
+                    txt = `🟥 ${minute}' Rode kaart: ${sinner.name} (1 duel geschorst)`;
+                }
+                events.push({ min: minute, type: 'red', side: isPlayerAway ? 'away' : 'away', text: txt });
             }
             
-            // 3. KANS OP BLESSURE (Alleen voor speler relevant)
-            if((isPlayerHome || isPlayerAway) && Math.random() < 0.01) {
-                const squad = isPlayerHome ? homeSquad : awaySquad;
-                if(squad.length > 0) {
-                    const unlucky = squad[Math.floor(Math.random() * squad.length)];
-                    events.push(`🚑 ${minute}' Blessure: ${unlucky.name}`);
+            // 3. KANS OP BLESSURE (Alleen voor jouw spelers, met echte uitval)
+            if(playerInvolved && myLineup.length > 0 && Math.random() < injuryChance) {
+                const candidates = myLineup.filter(p => !alreadyHurt.has(p.id));
+                if(candidates.length > 0) {
+                    const unlucky = UTILS.choice(candidates);
+                    alreadyHurt.add(unlucky.id);
+                    // Uitvalduur: 2-6 'ticks' = mist 1 tot 5 wedstrijden; medische staf verkort dit
+                    let duration = UTILS.rand(2, 6) - Math.floor(medical / 3);
+                    duration = Math.max(2, duration);
+                    unlucky.injuredWeeks = duration;
+                    events.push({ min: minute, type: 'injury', side: isPlayerHome ? 'home' : 'away', text: `🚑 ${minute}' Blessure: ${unlucky.name} (${duration - 1} wk uit de roulatie)` });
                 }
             }
         }
+
+        events.sort((x, y) => x.min - y.min);
 
         return { score: [hGoals, aGoals], events: events, note: note, homeRed: hRed, awayRed: aRed };
     },
@@ -1066,7 +1299,7 @@ endSeason() {
             // Dit blok regelt geld en historie. Dit mag ALLEEN gebeuren voor jouw divisie.
             const myPos = table.findIndex(x => x.id === Store.state.club.id);
             if(myPos > -1) {
-                const prize = Math.round(1000000 / d * (table.length - myPos));
+                const prize = CONFIG.prizePerPlace[d] * (table.length - myPos);
                 Store.state.club.budget += prize;
                 msg += `<br>Je bent geëindigd op plek <strong>${myPos + 1}</strong> in Divisie ${d}.<br>Bonus: <strong>${UTILS.fmtMoney(prize)}</strong><br>`;
                 
@@ -1159,11 +1392,29 @@ endSeason() {
         // 4. Overige resets
         Store.state.game.season++;
         Store.state.game.day = 1;
-        Store.state.team.forEach(p => { p.age++; p.value = Math.round(p.ovr * p.ovr * 25); });
+        Store.state.team.forEach(p => { 
+            p.age++; 
+            p.value = Math.round(p.ovr * p.ovr * 25);
+            p.injuredWeeks = 0;
+            p.suspended = 0;
+        });
         Store.state.transferList = []; 
         Store.state.incomingOffers = [];
         Store.state.seasonResults = [];
         Store.state.results = [];
+
+        // 4b. CONTRACTEN: elk seizoen telt af; spelers zonder contract vertrekken
+        Store.state.team.forEach(p => p.contractYears--);
+        const leaving = Store.state.team.filter(p => p.contractYears <= 0);
+        if(leaving.length > 0) {
+            const leavingIds = leaving.map(p => p.id);
+            Store.state.team = Store.state.team.filter(p => p.contractYears > 0);
+            if(Store.state.training && Store.state.training.selected) {
+                Store.state.training.selected = Store.state.training.selected.filter(id => !leavingIds.includes(id));
+            }
+            msg += `<br><br>⚠️ <strong>Contract afgelopen — deze spelers vertrekken:</strong><br>- ${leaving.map(p => p.name).join("<br>- ")}`;
+        }
+        this.validateLineup();
         
         // 5. Nieuw schema voor alle (herschikte) divisies
         this.generateAllSchedules();
