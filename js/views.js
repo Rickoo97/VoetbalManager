@@ -45,18 +45,58 @@ export const Views = {
     </div>`;
         
             // 2. Stats Grid (Responsive)
-        const totalOvr = Store.state.team.reduce((sum, p) => sum + p.ovr, 0);
-        const avgOvr = Store.state.team.length > 0 ? Math.round(totalOvr / Store.state.team.length) : 0;
+        const elevenRating = Engine.calculatePlayerTeamStrength();
+        
+        // Vorm: laatste 5 wedstrijden (W/G/V)
+        const myName = Store.state.club.name;
+        const last5 = (Store.state.seasonResults || []).slice(-5);
+        let formHtml = "";
+        if(last5.length > 0) {
+            formHtml = `<div style="display:flex; gap:4px; justify-content:center; margin-top:4px">`;
+            last5.forEach(r => {
+                const my = r.home === myName ? r.score[0] : r.score[1];
+                const opp = r.home === myName ? r.score[1] : r.score[0];
+                let cls = "form-d", letter = "G";
+                if(my > opp) { cls = "form-w"; letter = "W"; }
+                else if(my < opp) { cls = "form-l"; letter = "V"; }
+                formHtml += `<span class="form-chip ${cls}">${letter}</span>`;
+            });
+            formHtml += `</div>`;
+        } else {
+            formHtml = `<div class="muted" style="font-size:11px; margin-top:6px">Nog geen duels</div>`;
+        }
         
         const statsGrid = `
         <div class="responsive-grid">
-            <div class="card" style="margin:0; text-align:center"><div class="muted">Team Rating</div><div style="font-size:24px; font-weight:bold; color:#22c55e">${avgOvr}</div></div>
-            <div class="card" style="margin:0; text-align:center"><div class="muted">Budget</div><div style="font-size:18px; font-weight:bold">${UTILS.fmtMoney(Store.state.club.budget)}</div></div>
+            <div class="card" style="margin:0; text-align:center"><div class="muted">Elftal Rating</div><div style="font-size:24px; font-weight:bold; color:#22c55e">${elevenRating}</div></div>
+            <div class="card" style="margin:0; text-align:center"><div class="muted">Vorm</div>${formHtml}</div>
             <div class="card" style="margin:0; text-align:center"><div class="muted">Selectie</div><div style="font-size:24px; font-weight:bold">${Store.state.team.length}</div></div>
-            <div class="card" style="margin:0; text-align:center"><div class="muted">Stadion</div><div style="font-size:24px; font-weight:bold">${Store.state.club.facilities.stadium}</div></div>
+            <div class="card" style="margin:0; text-align:center"><div class="muted">Stadion</div><div style="font-size:24px; font-weight:bold">Lvl ${Store.state.club.facilities.stadium}</div></div>
         </div>`;
 
-        // 3. Laatste Resultaat met Visuals
+        // 3. Volgende wedstrijd (uit het schema)
+        let nextHtml = "";
+        const next = Engine.getMyNextMatch();
+        if(next) {
+            const oppBadge = UTILS.getClubBadge(next.opponent.name, 36);
+            const locTxt = next.isHome ? "🏟️ Thuis" : "🚌 Uit";
+            const tacName = CONFIG.tactics[Store.state.club.tactic].name;
+            nextHtml = `
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
+                    <div>
+                        <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px">Volgende wedstrijd — Speeldag ${next.day}</div>
+                        <div style="display:flex; align-items:center; gap:10px; margin-top:8px; font-size:17px; font-weight:bold">
+                            ${oppBadge} ${next.opponent.name}
+                        </div>
+                        <div class="muted" style="font-size:12px; margin-top:4px">${locTxt} • Jouw tactiek: ${tacName}</div>
+                    </div>
+                    <button class="secondary" data-nav-tab="fixtures" style="font-size:12px">📅 Programma</button>
+                </div>
+            </div>`;
+        }
+
+        // 4. Laatste Resultaat met Visuals
         const r = Store.state.results.find(x=>x.isYou);
         let resHTML = `<p class="muted">Nog geen wedstrijd gespeeld.</p>`;
         
@@ -66,7 +106,7 @@ export const Views = {
             // Events tonen (max 3 regels)
             let eventsShort = "";
             if(r.events && r.events.length > 0) {
-                eventsShort = r.events.slice(0, 3).map(e => `<div style="font-size:11px;color:var(--text-muted)">${e}</div>`).join("");
+                eventsShort = r.events.slice(0, 3).map(e => `<div style="font-size:11px;color:var(--text-muted)">${e.text ?? e}</div>`).join("");
                 if(r.events.length > 3) eventsShort += `<div style="font-size:10px;color:var(--text-muted)">... +${r.events.length - 3} meer</div>`;
             }
 
@@ -88,7 +128,7 @@ export const Views = {
             </div>`;
         }
 
-        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${sponsorHtml}${boardHtml}${statsGrid}<div class="card"><h3>Laatste Resultaat</h3>${resHTML}</div>`;
+        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${sponsorHtml}${boardHtml}${statsGrid}${nextHtml}<div class="card"><h3>Laatste Resultaat</h3>${resHTML}</div>`;
         return d;
     },
 
@@ -107,9 +147,12 @@ export const Views = {
             statusHtml = `<div class="card" style="background:rgba(34,197,94,0.1); border-color:#22c55e; text-align:center"><h3>✅ Training Voltooid</h3><p>Volgende week kun je weer trainen.</p></div>`;
         } else {
             const count = t.selected.length;
+            let maxSlots = 2;
+            if(facLvl >= 2) maxSlots = 3;
+            if(facLvl >= 4) maxSlots = 4;
             const btnClass = count > 0 ? "primary" : "secondary";
             statusHtml = `<div class="card" style="display:flex; justify-content:space-between; align-items:center">
-                <div><strong>Geselecteerd: ${count} / 3</strong><br><small class="muted">Hoger facility level = meer groei.</small></div>
+                <div><strong>Geselecteerd: ${count} / ${maxSlots}</strong><br><small class="muted">Hoger facility level = meer groei.</small></div>
                 <button class="${btnClass}" onclick="Engine.executeTraining()">Start Training</button>
             </div>`;
         }
@@ -119,8 +162,10 @@ export const Views = {
         
         Store.state.team.forEach(p => {
             const isSel = t.selected.includes(p.id);
-            const check = isSel ? "✅" : "⬜";
-            const rowStyle = isSel ? "background:rgba(34,197,94,0.1)" : "";
+            const injured = p.injuredWeeks > 0;
+            const check = injured ? "🚑" : (isSel ? "✅" : "⬜");
+            let rowStyle = isSel ? "background:rgba(34,197,94,0.1)" : "";
+            if(injured) rowStyle = "opacity:0.5";
             const face = UTILS.getPlayerFace(p.id); // VISUAL
             
             let pot = "⭐⭐⭐";
@@ -132,7 +177,7 @@ export const Views = {
                 <td>
                     <div class="club-row">
                         ${face}
-                        <div><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></div>
+                        <div><strong>${p.flag || ''} ${p.name}</strong><br><span class="muted">${p.age} jr</span></div>
                     </div>
                 </td>
                 <td><span class="pill">${p.pos}</span></td>
@@ -209,18 +254,26 @@ export const Views = {
 
     Squad() {
         const d=document.createElement('div');
-        let h=`<h2>Jouw Selectie</h2><div class="card"><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th title="Aanval">AAN</th><th title="Verdediging">VER</th><th title="Snelheid">SNL</th><th>Con</th><th>Waarde</th><th>Actie</th></tr></thead><tbody>`;
+        let h=`<h2>Jouw Selectie</h2><div class="card"><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th title="Aanval">AAN</th><th title="Verdediging">VER</th><th title="Snelheid">SNL</th><th>Status</th><th>Contract</th><th>Waarde</th><th>Actie</th></tr></thead><tbody>`;
         
+        const l = Store.state.lineup || {};
+        const inLineup = new Set([l.gk, ...(l.def||[]), ...(l.mid||[]), ...(l.att||[])].filter(Boolean));
+
         Store.state.team.forEach(p=>{
             let c = p.ovr>=70 ? "color:#22c55e" : "";
+            const years = p.contractYears ?? 1;
             let conColor = "";
-            let conText = `${p.contract || '?'} wkn`;
-            if(p.contract <= 5) { conColor = "color:#ef4444; font-weight:bold"; conText += " ⚠️"; }
-            else if(p.contract <= 10) { conColor = "color:#facc15"; }
+            let conText = `${years} szn`;
+            if(years <= 1) { conColor = "color:#ef4444; font-weight:bold"; conText += " ⚠️"; }
+
+            // Status: blessure / schorsing / basisspeler
+            let status = inLineup.has(p.id) ? `<span class="pill" style="background:rgba(34,197,94,0.15); color:#22c55e">Basis</span>` : `<span class="muted" style="font-size:11px">Bank</span>`;
+            if(p.injuredWeeks > 0) status = `<span style="color:#ef4444; font-size:12px">🚑 ${p.injuredWeeks} wk</span>`;
+            else if(p.suspended > 0) status = `<span style="color:#ef4444; font-size:12px">🟥 Geschorst</span>`;
 
             const onList = Store.state.transferList.includes(p.id);
             let btnAction = "";
-            if(p.contract <= 10) {
+            if(years <= 1) {
                  btnAction = `<button class="primary btn-extend" data-id="${p.id}" style="font-size:10px; padding:4px 6px">✍️ Verleng</button>`;
             } else {
                  const btnClass = onList ? "secondary" : "danger";
@@ -228,27 +281,27 @@ export const Views = {
                  btnAction = `<button class="${btnClass} btn-list" data-id="${p.id}" style="font-size:10px; padding:4px 6px">${btnLabel}</button>`;
             }
 
-            // VISUAL UPDATE: Face toevoegen
             const face = UTILS.getPlayerFace(p.id);
 
             h+=`<tr>
-                <td><span class="pill">${p.pos}</span></td>
+                <td><span class="pill ${p.pos === 'K' ? 'pill-gk' : ''}">${p.pos}</span></td>
                 <td>
                     <div class="club-row">
                         ${face}
-                        <div><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></div>
+                        <div><strong>${p.flag || ''} ${p.name}</strong><br><span class="muted">${p.age} jr • ${UTILS.fmtMoney(p.wage)}/wk</span></div>
                     </div>
                 </td>
                 <td style="${c};font-weight:bold">${p.ovr}</td>
                 <td class="muted" style="font-size:13px">${p.att || '-'}</td>
                 <td class="muted" style="font-size:13px">${p.def || '-'}</td>
                 <td class="muted" style="font-size:13px">${p.spd || '-'}</td>
+                <td>${status}</td>
                 <td style="${conColor}">${conText}</td>
                 <td class="money">${UTILS.fmtMoney(p.value)}</td>
                 <td>${btnAction}</td>
             </tr>`;
         });
-        d.innerHTML=h+`</tbody></table><p class="muted" style="font-size:12px; margin-top:10px">* Spelers met < 10 weken contract kun je verlengen.</p></div>`;
+        d.innerHTML=h+`</tbody></table><p class="muted" style="font-size:12px; margin-top:10px">* Spelers met nog 1 seizoen contract kun je verlengen. Contracten lopen af aan het einde van het seizoen.</p></div>`;
         return d;
     },
 
@@ -292,11 +345,11 @@ export const Views = {
             const min = Math.round(p.value * 0.9); const max = Math.round(p.value * 1.3);
             const face = UTILS.getPlayerFace(p.id);
             marketHtml+=`<tr>
-                <td><span class="pill">${p.pos}</span></td>
+                <td><span class="pill ${p.pos === 'K' ? 'pill-gk' : ''}">${p.pos}</span></td>
                 <td>
                     <div class="club-row">
                         ${face}
-                        <div><strong>${p.name}</strong><br><span class="muted">${p.age} jr</span></div>
+                        <div><strong>${p.flag || ''} ${p.name}</strong><br><span class="muted">${p.age} jr • ${UTILS.fmtMoney(p.wage)}/wk</span></div>
                     </div>
                 </td>
                 <td style="${c};font-weight:bold">${p.ovr}</td>
@@ -341,13 +394,69 @@ export const Views = {
 
     Tactics() {
         const d=document.createElement('div');
-        let h=`<h2>Tactiek</h2><div class="card" style="display:grid;gap:10px;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr))">`;
+        let h=`<h2>Tactiek & Opstelling</h2><div class="card" style="display:grid;gap:10px;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr))">`;
         for(let k in CONFIG.tactics) {
             let t = CONFIG.tactics[k];
             let active = Store.state.club.tactic === k ? "border:2px solid #22c55e;background:rgba(34,197,94,0.1)" : "border:1px solid var(--border)";
             h+=`<div onclick="Engine.setTactic('${k}')" style="padding:15px;border-radius:8px;cursor:pointer;${active}"><h3>${t.name}</h3><p class="muted" style="font-size:12px">${t.desc}</p></div>`;
         }
-        d.innerHTML=h+`</div>`;
+        h += `</div>`;
+
+        // --- OPSTELLING OP HET VELD ---
+        const slots = Engine.getLineupSlots();
+        const f = Engine.getFormation();
+        const strength = Engine.calculatePlayerTeamStrength();
+
+        // Posities op het veld per linie (aanval boven)
+        const rows = { GK: 90, DEF: 70, MID: 45, ATT: 20 };
+        const rowCounts = { GK: 1, DEF: f.def, MID: f.mid, ATT: f.att };
+        const rowIdx = { GK: 0, DEF: 0, MID: 0, ATT: 0 };
+
+        let nodes = "";
+        slots.forEach(s => {
+            const i = rowIdx[s.group]++;
+            const x = ((i + 1) / (rowCounts[s.group] + 1)) * 100;
+            const y = rows[s.group];
+            const p = Store.state.team.find(t => t.id === s.id);
+            
+            let shirt, info;
+            if(p) {
+                const eff = Engine.effectiveOvr(p, s.group);
+                const outOfPos = eff < p.ovr;
+                const shirtClass = s.group === "GK" ? "shirt gk" : "shirt";
+                shirt = `<div class="${shirtClass}">${eff}</div>`;
+                const warn = outOfPos ? " ⚠️" : "";
+                info = `<div class="player-info">${p.name.split(" ").slice(-1)[0]} (${p.pos})${warn}</div>`;
+            } else {
+                shirt = `<div class="shirt empty">?</div>`;
+                info = `<div class="player-info">Leeg</div>`;
+            }
+            
+            nodes += `<div class="player-node" data-slot-group="${s.group}" data-slot-key="${s.key}" data-slot-index="${s.index}" style="left:${x}%; top:${y}%">${shirt}${info}</div>`;
+        });
+
+        h += `
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
+                <div>
+                    <h3 style="margin:0">Opstelling <span class="badge">${f.def}-${f.mid}-${f.att}</span></h3>
+                    <span class="muted" style="font-size:12px">Klik op een positie om een speler te kiezen. ⚠️ = uit positie (rating-verlies).</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:12px">
+                    <div style="text-align:center"><div class="muted" style="font-size:10px; text-transform:uppercase">Elftal Rating</div><strong style="font-size:20px; color:var(--accent)">${strength}</strong></div>
+                    <button class="secondary" id="btn-auto-lineup">✨ Auto-opstelling</button>
+                </div>
+            </div>
+            <div class="pitch-container">
+                <div class="pitch-line center-line" style="width:100%; height:2px; top:50%; left:0; transform:none"></div>
+                <div class="pitch-line center-circle"></div>
+                <div class="pitch-line box-top"></div>
+                <div class="pitch-line box-bottom"></div>
+                ${nodes}
+            </div>
+        </div>`;
+
+        d.innerHTML = h;
         return d;
     },
 
@@ -366,8 +475,8 @@ export const Views = {
         for(let i=1;i<=5;i++) c+=`<span class="chip ${v===i?'active':''}" onclick="Store.state.ui.viewDivision=${i};UI.render()">${UTILS.getLeagueShort(i)}</span>`; 
         c+="</div>"; 
         
-        let h=`<h2>Competitie</h2><div class="card">${c}<table><thead><tr><th>#</th><th>Club</th><th>G</th><th>W</th><th>G</th><th>V</th><th>Pt</th></tr></thead><tbody>`; 
-        let t=[...Store.state.competitions[v]].sort((a,b)=>b.pts-a.pts); 
+        let h=`<h2>Competitie</h2><div class="card">${c}<table><thead><tr><th>#</th><th>Club</th><th>G</th><th>W</th><th>G</th><th>V</th><th>DS</th><th>Pt</th></tr></thead><tbody>`; 
+        let t=[...Store.state.competitions[v]].sort((a,b)=>b.pts-a.pts||b.gd-a.gd); 
         
         t.forEach((x,i)=>{
             let rowClass = "";
@@ -377,45 +486,111 @@ export const Views = {
 
             // VISUAL UPDATE: Badge toevoegen
             const badge = UTILS.getClubBadge(x.name, 28);
+            const gdColor = x.gd > 0 ? "color:#22c55e" : (x.gd < 0 ? "color:#ef4444" : "");
 
             h+=`<tr class="${rowClass}">
                 <td>${i+1}</td>
                 <td><div class="club-row">${badge} <span>${x.name}</span></div></td>
                 <td>${x.played}</td><td>${x.won}</td><td>${x.draw}</td><td>${x.lost}</td>
+                <td style="${gdColor}">${x.gd > 0 ? '+' : ''}${x.gd}</td>
                 <td><strong>${x.pts}</strong></td>
             </tr>`
         }); 
-        d.innerHTML=h+`</tbody></table></div>`; 
+        h += `</tbody></table>
+        <div style="display:flex; gap:15px; margin-top:12px; font-size:11px" class="muted">
+            ${v > 1 ? '<span><span class="legend-dot" style="background:#22c55e"></span> Promotie</span>' : ''}
+            ${v < 5 ? '<span><span class="legend-dot" style="background:#ef4444"></span> Degradatie</span>' : ''}
+        </div></div>`;
+        d.innerHTML=h; 
         return d; 
     },
 
     Fixtures() { 
         const d=document.createElement('div'); 
-        let h=`<h2>Uitslagen</h2><div class="card">`; 
+        const clubId = Store.state.club.id;
+        const div = Store.state.club.division;
+        const sched = Store.state.schedules ? Store.state.schedules[div] : null;
+        const teams = Store.state.competitions[div] || [];
+        const currentDay = Store.state.game.day;
+        const played = Store.state.seasonResults || [];
         
-        if(Store.state.results.length===0) h+="<p class='muted'>Geen data</p>"; 
-        else {
-            Store.state.results.forEach(r => {
-                let details = "";
-                if(r.note) details += `<div style="color:#fbbf24; font-size:11px; margin-bottom:4px;">${r.note}</div>`;
-                if(r.events) details += r.events.map(e => `<span style="display:inline-block; margin-right:10px; font-size:11px; color:#aaa; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;">${e}</span>`).join(" ");
-                
-                // VISUAL UPDATE
-                const homeBadge = UTILS.getClubBadge(r.home, 24);
-                const awayBadge = UTILS.getClubBadge(r.away, 24);
+        let h = `<h2>Programma & Uitslagen</h2>`;
 
-                h+=`<div style="border-bottom:1px solid var(--border); padding:10px 0;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; font-weight:bold; margin-bottom:5px;">
-                        <div class="club-row" style="width:40%">${homeBadge} ${r.home}</div>
-                        <span style="font-size:16px; color:var(--accent)">${r.score[0]}-${r.score[1]}</span>
-                        <div class="club-row" style="width:40%; justify-content:flex-end">${r.away} ${awayBadge}</div>
-                    </div>
-                    <div style="line-height:1.4">${details}</div>
-                </div>`;
-            });
+        // 1. Laatste wedstrijd met details (events + tactiek)
+        const last = [...played].reverse().find(r => r.isYou);
+        if(last) {
+            let details = "";
+            if(last.note) details += `<div style="color:#fbbf24; font-size:11px; margin-bottom:4px;">${last.note}</div>`;
+            if(last.events && last.events.length) details += last.events.map(e => `<span style="display:inline-block; margin-right:8px; font-size:11px; color:#aaa; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;">${e.text ?? e}</span>`).join(" ");
+            
+            const homeBadge = UTILS.getClubBadge(last.home, 24);
+            const awayBadge = UTILS.getClubBadge(last.away, 24);
+            h += `<div class="card">
+                <h3 style="font-size:14px">Laatste wedstrijd</h3>
+                <div style="display:flex; justify-content:space-between; align-items:center; font-weight:bold; margin-bottom:5px;">
+                    <div class="club-row" style="width:40%">${homeBadge} ${last.home}</div>
+                    <span style="font-size:18px; color:var(--accent)">${last.score[0]}-${last.score[1]}</span>
+                    <div class="club-row" style="width:40%; justify-content:flex-end">${last.away} ${awayBadge}</div>
+                </div>
+                <div style="line-height:1.6">${details || "<span class='muted' style='font-size:11px'>Geen hoogtepunten.</span>"}</div>
+            </div>`;
         }
+
+        // 2. Volledig seizoensschema van jouw club
+        if(!sched) {
+            h += `<div class="card"><p class="muted">Geen schema beschikbaar. Speel een ronde om het schema te genereren.</p></div>`;
+            d.innerHTML = h;
+            return d;
+        }
+
+        const byId = {};
+        teams.forEach(t => byId[t.id] = t);
+
+        let rows = "";
+        sched.forEach((round, idx) => {
+            const day = idx + 1;
+            const m = round.find(x => x.h === clubId || x.a === clubId);
+            if(!m) return; // vrijgeloot deze ronde
+            
+            const isHome = m.h === clubId;
+            const opp = byId[isHome ? m.a : m.h];
+            if(!opp) return;
+            
+            const oppBadge = UTILS.getClubBadge(opp.name, 22);
+            const locTag = isHome 
+                ? `<span class="pill" style="background:rgba(34,197,94,0.15); color:#22c55e">THUIS</span>` 
+                : `<span class="pill" style="background:rgba(59,130,246,0.15); color:#3b82f6">UIT</span>`;
+
+            // Uitslag opzoeken als de ronde al gespeeld is
+            let resultCell = `<span class="muted">-</span>`;
+            let rowStyle = "";
+            
+            if(day < currentDay) {
+                const res = played.find(r => r.day === day);
+                if(res) {
+                    const myGoals = res.home === Store.state.club.name ? res.score[0] : res.score[1];
+                    const oppGoals = res.home === Store.state.club.name ? res.score[1] : res.score[0];
+                    let color = "#facc15", letter = "G"; // Gelijk
+                    if(myGoals > oppGoals) { color = "#22c55e"; letter = "W"; }
+                    else if(myGoals < oppGoals) { color = "#ef4444"; letter = "V"; }
+                    resultCell = `<strong style="color:${color}">${res.score[0]} - ${res.score[1]}</strong> <span class="pill" style="background:${color}; color:#000; margin-left:6px">${letter}</span>`;
+                }
+            } else if(day === currentDay) {
+                rowStyle = "background:rgba(34,197,94,0.08); border-left:3px solid var(--accent)";
+                resultCell = `<span style="color:var(--accent); font-weight:bold">▶ Volgende</span>`;
+            }
+
+            rows += `<tr style="${rowStyle}">
+                <td class="muted">${day}</td>
+                <td><div class="club-row">${oppBadge} <span>${opp.name}</span></div></td>
+                <td>${locTag}</td>
+                <td>${resultCell}</td>
+            </tr>`;
+        });
+
+        h += `<div class="card"><table><thead><tr><th>Dag</th><th>Tegenstander</th><th>Waar</th><th>Uitslag</th></tr></thead><tbody>${rows}</tbody></table></div>`;
         
-        d.innerHTML=h+`</div>`; 
+        d.innerHTML = h; 
         return d; 
     },
 
@@ -447,6 +622,45 @@ export const Views = {
         }
         
         d.innerHTML = `<h2>🏆 Hall of Fame</h2>${content}`;
+        return d;
+    },
+
+    Settings() {
+        const d = document.createElement('div');
+        d.innerHTML = `
+        <h2>⚙️ Instellingen</h2>
+        
+        <div class="card">
+            <h3>💾 Save exporteren</h3>
+            <p class="muted" style="font-size:13px">Genereer een save-code om je carrière over te zetten naar een ander apparaat (bijv. van PC naar telefoon), of als back-up.</p>
+            <div style="display:flex; gap:8px; margin-bottom:10px">
+                <button class="primary" id="btn-export-save">Genereer save-code</button>
+                <button class="secondary" id="btn-copy-save">📋 Kopieer</button>
+            </div>
+            <textarea id="export-area" readonly class="save-area" style="display:none" placeholder="Je save-code verschijnt hier..."></textarea>
+        </div>
+
+        <div class="card">
+            <h3>📥 Save importeren</h3>
+            <p class="muted" style="font-size:13px">Plak hier een save-code van een ander apparaat. <strong>Let op:</strong> dit overschrijft je huidige spel!</p>
+            <textarea id="import-area" class="save-area" placeholder="Plak je save-code hier..."></textarea>
+            <button class="primary" id="btn-import-save" style="margin-top:10px">Importeer save</button>
+        </div>
+
+        <div class="card">
+            <h3>🗑️ Opnieuw beginnen</h3>
+            <p class="muted" style="font-size:13px">Wis je huidige carrière en start opnieuw. Dit kan niet ongedaan gemaakt worden.</p>
+            <button class="danger" id="btn-reset">Reset carrière</button>
+        </div>
+
+        <div class="card">
+            <h3>ℹ️ Over</h3>
+            <p class="muted" style="font-size:13px">
+                ${CONFIG.gameTitle} — versie ${CONFIG.version}<br>
+                Je spel wordt automatisch opgeslagen na elke actie.<br>
+                Installeer de game op je telefoon via "Toevoegen aan beginscherm" in je browser.
+            </p>
+        </div>`;
         return d;
     },
 
