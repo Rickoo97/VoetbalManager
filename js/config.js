@@ -1,5 +1,5 @@
 export const CONFIG = {
-    version: "3.10.0", 
+    version: "3.11.0", 
     gameTitle: "Online Voetbal Manager",
     startBudget: 150000,
     currency: "€",

@@ -29,6 +29,12 @@ export const Store = {
         topScorers: {},      // { playerId: { name, club, division, goals } } — reset per seizoen
         pendingSignings: [], // Deals gesloten buiten de window, wachten tot die opengaat
         pendingSales: [],    // Idem, maar dan verkopen
+        manager: {
+            reputation: 50,   // 0-100, bepaalt welke vacatures beschikbaar zijn
+            unemployed: false,
+            browsing: false,  // vrijwillig aan het rondkijken (heeft nog wel een club)
+            jobOffers: []     // [{ id, name, division }]
+        },
 
         team: [], market: [], transferList: [], incomingOffers: [], youthAcademy: [],
         competitions: {}, results: []
@@ -52,6 +58,10 @@ export const Store = {
                 if(!Array.isArray(this.state.pendingSignings)) this.state.pendingSignings = [];
                 if(!Array.isArray(this.state.pendingSales)) this.state.pendingSales = [];
                 if(this.state.game.over === undefined) this.state.game.over = false;
+                if(!this.state.manager || typeof this.state.manager !== 'object') {
+                    this.state.manager = { reputation: 50, unemployed: false, browsing: false, jobOffers: [] };
+                }
+                if(!Array.isArray(this.state.manager.jobOffers)) this.state.manager.jobOffers = [];
 
                 // --- DATA MIGRATIE ---
                 const upgradePlayer = (p) => {
@@ -92,6 +102,18 @@ export const Store = {
                 // 7. AI-selecties: oude saves hebben nog geen individuele spelers per club
                 if(this.state.competitions && this.state.competitions[1]) {
                     Engine.generateAISquads();
+                }
+
+                // 8. Oude "game over" saves (vóór het ontslag/vacature-systeem) omzetten
+                //    naar de nieuwe werkloos-status i.p.v. permanent vastzitten.
+                if(this.state.game.over) {
+                    this.state.game.over = false;
+                    this.state.manager.unemployed = true;
+                    this.state.manager.reputation = Math.max(0, (this.state.manager.reputation || 50) - 8);
+                    this.state.team = [];
+                    if(this.state.competitions && this.state.competitions[1]) {
+                        Engine.generateJobOffers();
+                    }
                 }
                 // --------------------------------------------
                 
@@ -166,6 +188,7 @@ export const Store = {
         this.state.topScorers = {};
         this.state.pendingSignings = [];
         this.state.pendingSales = [];
+        this.state.manager = { reputation: 50, unemployed: false, browsing: false, jobOffers: [] };
         
         this.state.competitions = Engine.generateAllDivisions();
         Engine.generateAISquads();

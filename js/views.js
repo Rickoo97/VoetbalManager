@@ -12,6 +12,64 @@ export const Views = {
         return d;
     },
 
+    JobMarket() {
+        const d = document.createElement('div');
+        const m = Store.state.manager || { reputation: 50, unemployed: false, browsing: false, jobOffers: [] };
+        const repPct = m.reputation;
+        let repColor = "#ef4444";
+        if(repPct >= 40) repColor = "#facc15";
+        if(repPct >= 60) repColor = "#22c55e";
+        if(repPct >= 80) repColor = "#a855f7";
+
+        let header = m.unemployed
+            ? `<h2>📋 Vacatures</h2><div class="card" style="background:rgba(239,68,68,0.1); border-color:#ef4444">😤 Je bent ontslagen. Kies hieronder je volgende club om je carrière voort te zetten.</div>`
+            : `<h2>📋 Vacatures</h2><div class="card" style="background:rgba(34,197,94,0.1); border-color:#22c55e">Je oriënteert je op een nieuwe uitdaging. Je huidige baan blijft van jou totdat je een andere club kiest.</div>`;
+
+        const repCard = `
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px">
+                <strong>Reputatie</strong>
+                <span style="font-size:12px; color:${repColor}; font-weight:bold">${Engine.reputationLabel(m.reputation)}</span>
+            </div>
+            <div style="background:#334155; height:10px; border-radius:5px; overflow:hidden">
+                <div style="background:${repColor}; width:${repPct}%; height:100%"></div>
+            </div>
+            <div style="text-align:right; font-size:11px; margin-top:3px; color:${repColor}">${m.reputation}/100</div>
+            <p class="muted" style="font-size:12px; margin-top:10px; margin-bottom:0">Hogere reputatie = vacatures bij clubs in hogere divisies. Promoties, titels en bekers verhogen je reputatie; degradaties en ontslagen verlagen hem.</p>
+        </div>`;
+
+        let offersHtml = "";
+        const offers = m.jobOffers || [];
+        if(offers.length === 0) {
+            offersHtml = `<div class="card" style="text-align:center; padding:30px" class="muted">Geen vacatures beschikbaar. Probeer het later opnieuw.</div>`;
+        } else {
+            offersHtml = `<h3>Openstaande vacatures</h3>`;
+            offers.forEach(o => {
+                const badge = UTILS.getClubBadge(o.name, 40);
+                const budget = Engine.jobStartBudget(o.division);
+                offersHtml += `
+                <div class="card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
+                    <div style="display:flex; align-items:center; gap:12px">
+                        ${badge}
+                        <div>
+                            <strong>${o.name}</strong><br>
+                            <span class="muted" style="font-size:12px">${UTILS.getLeagueName(o.division)} • Startbudget ${UTILS.fmtMoney(budget)}</span>
+                        </div>
+                    </div>
+                    <button class="primary btn-apply-job" data-id="${o.id}" data-club-name="${o.name}">Solliciteer</button>
+                </div>`;
+            });
+        }
+
+        let footer = "";
+        if(!m.unemployed) {
+            footer = `<button class="secondary" id="btn-cancel-browsing" style="margin-top:10px">↩️ Terug naar mijn huidige club</button>`;
+        }
+
+        d.innerHTML = header + repCard + offersHtml + footer;
+        return d;
+    },
+
     Dashboard() {
         const d=document.createElement('div');
         
@@ -36,6 +94,7 @@ export const Views = {
     if(board.confidence < 50) barColor = "#facc15"; // Geel
     if(board.confidence < 25) barColor = "#ef4444"; // Rood
 
+    const rep = Store.state.manager ? Store.state.manager.reputation : 50;
     const boardHtml = `
     <div class="card">
         <div style="display:flex; justify-content:space-between; margin-bottom:5px">
@@ -45,8 +104,9 @@ export const Views = {
         <div style="background:#334155; height:10px; border-radius:5px; overflow:hidden; position:relative">
             <div style="background:${barColor}; width:${board.confidence}%; height:100%; transition: width 0.3s"></div>
         </div>
-        <div style="text-align:right; font-size:11px; margin-top:3px; color:${barColor}">
-            Vertrouwen: ${board.confidence}%
+        <div style="display:flex; justify-content:space-between; margin-top:3px">
+        <span style="font-size:11px" class="muted">⭐ Reputatie: ${rep}/100 (${Engine.reputationLabel(rep)})</span>
+        <span style="font-size:11px; color:${barColor}">Vertrouwen: ${board.confidence}%</span>
         </div>
     </div>`;
         
@@ -674,11 +734,16 @@ export const Views = {
         } else {
             let rows = "";
             [...hist].reverse().forEach(h => {
-                let badgeColor = h.result === "Promotie" ? "#22c55e" : (h.result === "Degradatie" ? "#ef4444" : "#facc15");
+                let badgeColor = "#facc15"; // Handhaving
+                if(h.result === "Kampioen") badgeColor = "#a855f7";
+                else if(h.result === "Promotie") badgeColor = "#22c55e";
+                else if(h.result === "Degradatie") badgeColor = "#ef4444";
+                else if(h.result === "Ontslagen") badgeColor = "#f97316";
                 let cupTxt = h.cup || "-"; 
                 
                 rows += `<tr>
                     <td>Seizoen ${h.season}</td>
+                    <td>${h.teamName || '-'}</td>
                     <td>Divisie ${h.division}</td>
                     <td># ${h.rank}</td>
                     <td>${h.points}</td>
@@ -686,7 +751,7 @@ export const Views = {
                     <td><strong>${cupTxt}</strong></td> 
                 </tr>`;
             });
-            content = `<div class="card"><table><thead><tr><th>Seizoen</th><th>Divisie</th><th>Pos</th><th>Pt</th><th>Res</th><th>Beker</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+            content = `<div class="card"><table><thead><tr><th>Seizoen</th><th>Club</th><th>Divisie</th><th>Pos</th><th>Pt</th><th>Res</th><th>Beker</th></tr></thead><tbody>${rows}</tbody></table></div>`;
         }
         
         d.innerHTML = `<h2>🏆 Hall of Fame</h2>${content}`;
@@ -695,9 +760,17 @@ export const Views = {
 
     Settings() {
         const d = document.createElement('div');
+        const m = Store.state.manager;
+        const careerCard = (m && !m.unemployed) ? `
+        <div class="card">
+            <h3>💼 Managerscarrière</h3>
+            <p class="muted" style="font-size:13px">Reputatie: <strong>${m.reputation}/100</strong> (${Engine.reputationLabel(m.reputation)}). Sta je open voor een nieuwe uitdaging? Je huidige club blijft van jou totdat je daadwerkelijk tekent bij een andere club.</p>
+            <button class="secondary" id="btn-browse-jobs">🔍 Zoek een nieuwe uitdaging</button>
+        </div>` : "";
+
         d.innerHTML = `
         <h2>⚙️ Instellingen</h2>
-        
+        ${careerCard}
         <div class="card">
             <h3>💾 Save exporteren</h3>
             <p class="muted" style="font-size:13px">Genereer een save-code om je carrière over te zetten naar een ander apparaat (bijv. van PC naar telefoon), of als back-up.</p>

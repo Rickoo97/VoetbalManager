@@ -39,6 +39,21 @@ export const UI = {
             return;
         }
 
+        // --- VACATUREMARKT ---
+        if(t.closest('#btn-browse-jobs')) { Engine.browseJobs(); return; }
+        if(t.closest('#btn-cancel-browsing')) { Engine.cancelBrowsing(); return; }
+        const applyBtn = t.closest('.btn-apply-job');
+        if(applyBtn) {
+            const clubName = applyBtn.dataset.clubName;
+            this.confirm(
+                "Solliciteren?",
+                `Weet je zeker dat je de baan bij <strong>${clubName}</strong> wilt aannemen?`,
+                () => Engine.acceptJobOffer(applyBtn.dataset.id),
+                { yesLabel: "Solliciteer" }
+            );
+            return;
+        }
+
         // --- OPSTELLING: speler kiezen in de picker (eerst, want rows hebben ook slot-data) ---
         const pickEl = t.closest('[data-pick-player]');
         if(pickEl) {
@@ -407,6 +422,10 @@ export const UI = {
     },
 
     render() {
+        // Werkloos? Dan forceren we de vacaturemarkt, ongeacht welke tab openstond.
+        const unemployed = !!(Store.state.manager && Store.state.manager.unemployed);
+        if(unemployed) Store.state.ui.currentTab = 'jobmarket';
+
         this.renderNav(); 
         this.updateThemeBtn();
         
@@ -416,6 +435,7 @@ export const UI = {
         // Toggle sidebar en header visibility op basis van of je ingelogd bent
         const sidebar = document.querySelector(".sidebar");
         const header = document.querySelector(".top-header");
+        const continueBtn = document.getElementById("btn-continue");
 
         if(tab === 'welcome') { 
             if(sidebar) sidebar.style.display='none'; 
@@ -424,6 +444,10 @@ export const UI = {
             if(sidebar) sidebar.style.display='flex'; 
             if(header) header.style.display='flex'; 
             this.renderTopbar(); 
+        }
+
+        if(continueBtn) {
+            continueBtn.style.display = unemployed ? 'none' : '';
         }
 
         // Render de juiste View
@@ -445,6 +469,7 @@ export const UI = {
             case 'history': cont.appendChild(Views.History()); break;
             case 'news': cont.appendChild(Views.News()); break;
             case 'settings': cont.appendChild(Views.Settings()); break;
+            case 'jobmarket': cont.appendChild(Views.JobMarket()); break;
             case 'beker': cont.appendChild(Views.Cup()); break;
             default: cont.innerHTML = "<p>Pagina niet gevonden</p>";
         }
@@ -454,6 +479,23 @@ export const UI = {
         const nav = document.getElementById("main-nav"); 
         if(!nav) return;
         nav.innerHTML = "";
+
+        // Werkloos? Toon alleen de vacaturemarkt, historie en instellingen.
+        if(Store.state.manager && Store.state.manager.unemployed) {
+            const L = [
+                {id:'jobmarket', i:'📋', l:'Vacatures'},
+                {id:'history', i:'📜', l:'Historie'},
+                {id:'settings', i:'⚙️', l:'Instellingen'}
+            ];
+            L.forEach(x => {
+                const d = document.createElement('div');
+                d.className = `nav-item nav-primary ${Store.state.ui.currentTab===x.id?'active':''}`;
+                d.innerHTML = `<span style="margin-right:8px">${x.i}</span> ${x.l}`;
+                d.onclick = () => { Store.state.ui.currentTab = x.id; this.render(); };
+                nav.appendChild(d);
+            });
+            return;
+        }
         
         const L = [
             {id:'dashboard',i:'🏠',l:'Overzicht'}, 
@@ -505,6 +547,15 @@ export const UI = {
         const elName = document.getElementById("club-name");
         const elDiv = document.getElementById("club-division");
         const elMatch = document.getElementById("matchday");
+        const rep = Store.state.manager ? Store.state.manager.reputation : 50;
+
+        if(Store.state.manager && Store.state.manager.unemployed) {
+            if(elName) elName.innerHTML = `🔍 <strong>Werkloos</strong>`;
+            if(elDiv) elDiv.innerText = Engine.reputationLabel(rep);
+            if(elBudget) elBudget.innerText = `⭐ ${rep}/100`;
+            if(elMatch) elMatch.innerText = `Seizoen ${Store.state.game.season}`;
+            return;
+        }
 
         if(elName) {
             // Voeg badge toe aan de header
