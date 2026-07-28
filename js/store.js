@@ -26,6 +26,9 @@ export const Store = {
         schedules: {},       // Wedstrijdschema per divisie (round-robin)
         seasonResults: [],   // Alle gespeelde wedstrijden van JOUW club dit seizoen
         lineup: null,        // Opstelling: { gk, def: [], mid: [], att: [] }
+        topScorers: {},      // { playerId: { name, club, division, goals } } — reset per seizoen
+        pendingSignings: [], // Deals gesloten buiten de window, wachten tot die opengaat
+        pendingSales: [],    // Idem, maar dan verkopen
 
         team: [], market: [], transferList: [], incomingOffers: [], youthAcademy: [],
         competitions: {}, results: []
@@ -45,6 +48,9 @@ export const Store = {
                 if(!Array.isArray(this.state.news)) this.state.news = [];
                 if(!Array.isArray(this.state.history)) this.state.history = [];
                 if(!Array.isArray(this.state.seasonResults)) this.state.seasonResults = [];
+                if(!this.state.topScorers || typeof this.state.topScorers !== 'object') this.state.topScorers = {};
+                if(!Array.isArray(this.state.pendingSignings)) this.state.pendingSignings = [];
+                if(!Array.isArray(this.state.pendingSales)) this.state.pendingSales = [];
                 if(this.state.game.over === undefined) this.state.game.over = false;
 
                 // --- DATA MIGRATIE ---
@@ -66,19 +72,26 @@ export const Store = {
                     // 4. Blessure/schorsing velden
                     if(p.injuredWeeks === undefined) p.injuredWeeks = 0;
                     if(p.suspended === undefined) p.suspended = 0;
+                    // 5. Verborgen potentieel (spelerontwikkeling)
+                    if(p.potential === undefined) Engine.assignPotential(p);
                 };
                 
                 if(this.state.team) this.state.team.forEach(upgradePlayer);
                 if(this.state.market) this.state.market.forEach(upgradePlayer);
                 if(this.state.youthAcademy) this.state.youthAcademy.forEach(upgradePlayer);
 
-                // 5. Keepers: oude saves hebben geen 'K' positie.
+                // 6. Keepers: oude saves hebben geen 'K' positie.
                 //    Maak van de 2 minst aanvallende verdedigers keepers.
                 if(this.state.team && this.state.team.length > 0 && !this.state.team.some(p => p.pos === "K")) {
                     const candidates = [...this.state.team]
                         .filter(p => ["CV", "DM", "VVM", "VL", "VR"].includes(p.pos))
                         .sort((a, b) => a.att - b.att);
                     candidates.slice(0, 2).forEach(p => { p.pos = "K"; });
+                }
+
+                // 7. AI-selecties: oude saves hebben nog geen individuele spelers per club
+                if(this.state.competitions && this.state.competitions[1]) {
+                    Engine.generateAISquads();
                 }
                 // --------------------------------------------
                 
@@ -141,7 +154,7 @@ export const Store = {
         
         // Genereer nieuwe data via de Engine
         this.state.team = Engine.generateSquad(18);
-        this.state.market = Engine.generateMarket(15);
+        this.state.market = [];
         this.state.transferList = [];
         this.state.incomingOffers = [];
         this.state.youthAcademy = [];
@@ -150,8 +163,13 @@ export const Store = {
         this.state.history = [];
         this.state.seasonResults = [];
         this.state.results = [];
+        this.state.topScorers = {};
+        this.state.pendingSignings = [];
+        this.state.pendingSales = [];
         
         this.state.competitions = Engine.generateAllDivisions();
+        Engine.generateAISquads();
+        this.state.market = Engine.refreshMarket(15);
         Engine.generateAllSchedules();
         Engine.autoPickLineup();
         Engine.generateSponsorOffers();

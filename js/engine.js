@@ -51,6 +51,60 @@ export const Engine = {
         const d = Store.state.game.day;
         return (d >= 1 && d <= 6) || (d >= 17 && d <= 22);
     },
+
+    // Wanneer gaat de volgende window open? (voor vooraf afgesproken deals)
+    nextWindowLabel() {
+        const d = Store.state.game.day;
+        if(d < 17) return "de winterstop (speeldag 17)";
+        return "de zomerstop (start van het volgende seizoen)";
+    },
+
+    // Voer vooraf overeengekomen transfers uit zodra de transferwindow opengaat.
+    // Wordt elke speelronde aangeroepen; doet niets als de window dicht is.
+    processPendingDeals() {
+        if(!this.isTransferWindowOpen()) return;
+        if(!Store.state.pendingSignings) Store.state.pendingSignings = [];
+        if(!Store.state.pendingSales) Store.state.pendingSales = [];
+
+        // Aankopen komen binnen
+        const signings = Store.state.pendingSignings;
+        if(signings.length > 0) {
+            let lines = [];
+            signings.forEach(s => {
+                if(Store.state.team.length < 30) {
+                    Store.state.team.push(s.player);
+                    lines.push(`✅ ${s.player.name} (van ${s.from})`);
+                } else {
+                    // Selectie vol: transfersom terugstorten
+                    Store.state.club.budget += s.fee;
+                    lines.push(`↩️ ${s.player.name} — selectie was vol, transfersom teruggestort`);
+                }
+            });
+            Store.state.pendingSignings = [];
+            this.validateLineup();
+            UI.alert("📥 Transferwindow open — aanwinsten gearriveerd!", lines.join("<br>"));
+        }
+
+        // Verkochte spelers vertrekken (het geld komt nu pas binnen)
+        const sales = Store.state.pendingSales;
+        if(sales.length > 0) {
+            let lines = [];
+            sales.forEach(s => {
+                const idx = Store.state.team.findIndex(p => p.id === s.playerId);
+                if(idx > -1) {
+                    Store.state.club.budget += s.amount;
+                    Store.state.team.splice(idx, 1);
+                    lines.push(`💰 ${s.playerName} → ${s.club} (${UTILS.fmtMoney(s.amount)})`);
+                }
+                if(Store.state.training && Store.state.training.selected) {
+                    Store.state.training.selected = Store.state.training.selected.filter(id => id !== s.playerId);
+                }
+            });
+            Store.state.pendingSales = [];
+            this.validateLineup();
+            if(lines.length > 0) UI.alert("📤 Transferwindow open — spelers vertrokken", lines.join("<br>"));
+        }
+    },
     
 createPlayer(posOverride, ageOverride) { 
         const pos = posOverride || UTILS.choice(CONFIG.positions); 
@@ -116,7 +170,74 @@ createPlayer(posOverride, ageOverride) {
             injuredWeeks: 0, suspended: 0
         }; 
         p.wage = this.calcWage(p);
+        this.assignPotential(p);
         return p;
+    },
+
+    // --- SPELERONTWIKKELING (potentieel, groei, veroudering, pensioen) ---
+
+    // Verborgen potentieel: jonge spelers hebben veel groeiruimte, ouderen nauwelijks
+    assignPotential(p) {
+        if(p.age <= 21) p.potential = Math.min(94, p.ovr + UTILS.rand(8, 25));
+        else if(p.age <= 25) p.potential = Math.min(92, p.ovr + UTILS.rand(3, 12));
+        else if(p.age <= 29) p.potential = Math.min(90, p.ovr + UTILS.rand(0, 5));
+        else p.potential = p.ovr;
+    },
+
+    // Gedeelde groei/verval-curve: geeft alleen de OVR-delta voor dit seizoen
+    // terug (groei richting potentieel bij jonge spelers, verval na de dertig).
+    // Wordt door twee varianten gebruikt omdat volledige spelers (att/def/spd)
+    // en lichte AI-selecties (alleen ovr) verschillend moeten worden bijgewerkt.
+    growthDelta(p) {
+        if(p.potential === undefined) this.assignPotential(p);
+
+        let delta = 0;
+        if(p.age <= 21) delta = UTILS.rand(1, 3);
+        else if(p.age <= 25) delta = UTILS.rand(0, 2);
+        else if(p.age <= 29) delta = UTILS.rand(-1, 1);
+        else if(p.age <= 32) delta = -UTILS.rand(1, 2);
+        else delta = -UTILS.rand(2, 4);
+
+        // Groei stopt bij het potentieel; verval mag altijd doorzetten
+        if(delta > 0) {
+            const room = p.potential - p.ovr;
+            delta = Math.min(delta, Math.max(0, room));
+        }
+        return delta;
+    },
+
+    // Seizoensontwikkeling voor VOLLEDIGE spelers (met att/def/spd) —
+    // gebruikt voor jouw eigen selectie. Geeft de OVR-verandering terug.
+    developPlayer(p) {
+        const delta = this.growthDelta(p);
+        if(delta !== 0) {
+            const clamp = (n) => Math.max(10, Math.min(99, n));
+            p.att = clamp(p.att + delta);
+            p.def = clamp(p.def + delta);
+            p.spd = clamp(p.spd + delta);
+            this.recalcPlayer(p);
+        }
+        return delta;
+    },
+
+    // Seizoensontwikkeling voor LICHTE AI-selecties (alleen ovr, geen
+    // att/def/spd) — gebruikt in developAISquads(). Past ovr direct aan.
+    developLightPlayer(p) {
+        const delta = this.growthDelta(p);
+        if(delta !== 0) {
+            p.ovr = Math.max(20, Math.min(94, p.ovr + delta));
+            p.value = Math.round(p.ovr * p.ovr * 25);
+        }
+        return delta;
+    },
+
+    // Kans dat een oudere speler aan het einde van het seizoen stopt
+    retirementChance(age) {
+        if(age < 34) return 0;
+        if(age === 34) return 0.15;
+        if(age === 35) return 0.35;
+        if(age === 36) return 0.6;
+        return 0.85;
     },
 
     // --- OPSTELLING & FORMATIE ---
@@ -301,6 +422,223 @@ createPlayer(posOverride, ageOverride) {
         return 0; // Neutraal
     },
 
+    // --- AI SELECTIES ---
+    // Elke AI club krijgt een lichte selectie (naam, positie, leeftijd, OVR,
+    // waarde — geen volledige stats) zodat de transfermarkt, topscorers en
+    // wedstrijdverslagen over échte, individuele spelers gaan i.p.v. anonieme cijfers.
+
+    aiSquadTemplate: ["K", "K", "CV", "CV", "CV", "VL", "VR", "DM", "VVM", "CM", "CM", "CAM", "LB", "RB", "SP", "SP"],
+
+    generateAIPlayer(pos, teamStrength, ageOverride) {
+        const allNations = Object.keys(CONFIG.nations);
+        let code = "NL";
+        if(Math.random() > 0.60) code = UTILS.choice(allNations.filter(k => k !== "NL"));
+        const nationData = CONFIG.nations[code];
+
+        const age = ageOverride || UTILS.rand(17, 34);
+        let ovr = teamStrength + UTILS.rand(-6, 6);
+        if(age <= 20) ovr -= UTILS.rand(2, 6); // jonkies zijn nog niet op niveau
+        ovr = Math.max(25, Math.min(94, ovr));
+
+        const p = {
+            id: UTILS.rid(),
+            name: `${UTILS.choice(nationData.first)} ${UTILS.choice(nationData.last)}`,
+            nat: code,
+            flag: nationData.flag,
+            age, pos, ovr,
+            value: Math.round(ovr * ovr * 25)
+        };
+        this.assignPotential(p);
+        return p;
+    },
+
+    generateSquadForTeam(team) {
+        team.squad = this.aiSquadTemplate.map(pos => this.generateAIPlayer(pos, team.strength));
+        this.recalcTeamStrength(team);
+    },
+
+    generateAISquads() {
+        for(let d = 1; d <= 5; d++) {
+            if(!Store.state.competitions[d]) continue;
+            Store.state.competitions[d].forEach(t => {
+                if(t.id !== Store.state.club.id && !t.squad) this.generateSquadForTeam(t);
+            });
+        }
+    },
+
+    // Sterkte van een AI team = gemiddelde OVR van de beste 11 in de selectie.
+    // Beschermt tegen corrupte (NaN) entries zodat een team nooit zonder
+    // geldige sterkte (en dus zonder doelpunten) komt te zitten.
+    recalcTeamStrength(team) {
+        if(!team.squad || team.squad.length === 0) return;
+        const valid = team.squad.filter(p => Number.isFinite(p.ovr));
+        if(valid.length === 0) return; // behoud de vorige sterkte i.p.v. NaN
+        const best = [...valid].sort((a, b) => b.ovr - a.ovr).slice(0, 11);
+        const avg = Math.round(best.reduce((s, p) => s + p.ovr, 0) / best.length);
+        if(Number.isFinite(avg)) team.strength = avg;
+    },
+
+    // Jaarlijkse ontwikkeling van AI selecties: leeftijd, groei/verval,
+    // pensioen (met vervanging door een jong talent) en bijgewerkte sterkte.
+    developAISquads() {
+        for(let d = 1; d <= 5; d++) {
+            const teams = Store.state.competitions[d];
+            if(!teams) continue;
+            teams.forEach(team => {
+                if(team.id === Store.state.club.id || !team.squad) return;
+                team.squad.forEach(p => { p.age++; });
+
+                const staying = [];
+                team.squad.forEach(p => {
+                    if(Math.random() < this.retirementChance(p.age)) return; // stopt
+                    this.developLightPlayer(p);
+                    staying.push(p);
+                });
+                const retiredCount = team.squad.length - staying.length;
+                for(let i = 0; i < retiredCount; i++) {
+                    staying.push(this.generateAIPlayer(UTILS.choice(this.aiSquadTemplate), team.strength, 17 + UTILS.rand(0, 2)));
+                }
+                team.squad = staying;
+                this.recalcTeamStrength(team);
+            });
+        }
+    },
+
+    // Zoek een AI speler in alle selecties (voor transfers/topscorer-koppeling)
+    findAIPlayer(playerId) {
+        for(let d = 1; d <= 5; d++) {
+            const teams = Store.state.competitions[d];
+            if(!teams) continue;
+            for(const team of teams) {
+                if(!team.squad) continue;
+                const idx = team.squad.findIndex(p => p.id === playerId);
+                if(idx > -1) return { team, player: team.squad[idx], index: idx, division: d };
+            }
+        }
+        return null;
+    },
+
+    // Maak van een lichte AI speler een volwaardige speler voor jouw selectie
+    hydrateAIPlayer(entry) {
+        let attOff = 0, defOff = 0, spdOff = 0;
+        if(entry.pos === "K") { defOff = 12; attOff = -12; }
+        else if(["SP","LB","RB"].includes(entry.pos)) { attOff = 10; defOff = -10; }
+        else if(["CV","VL","VR"].includes(entry.pos)) { defOff = 10; attOff = -10; }
+        else if(["DM","VVM"].includes(entry.pos)) { defOff = 6; attOff = -6; }
+
+        const clamp = (n) => Math.max(10, Math.min(99, Math.round(n)));
+        const p = {
+            id: entry.id,
+            name: entry.name,
+            nat: entry.nat,
+            flag: entry.flag,
+            age: entry.age,
+            pos: entry.pos,
+            att: clamp(entry.ovr + attOff),
+            def: clamp(entry.ovr + defOff),
+            spd: clamp(entry.ovr + spdOff),
+            ovr: entry.ovr,
+            value: entry.value,
+            wage: 0,
+            contractYears: Math.max(2, UTILS.rand(1, 4)),
+            injuredWeeks: 0,
+            suspended: 0,
+            potential: entry.potential
+        };
+        p.ovr = Math.round((p.att + p.def + p.spd) / 3);
+        p.value = Math.round(p.ovr * p.ovr * 25);
+        p.wage = this.calcWage(p);
+        if(p.potential === undefined) this.assignPotential(p);
+        return p;
+    },
+
+    // De transfermarkt = een steekproef van spelers die AI-clubs in de etalage hebben
+    refreshMarket(count) {
+        const entries = [];
+        let guard = 0;
+        while(entries.length < count && guard++ < 200) {
+            const d = UTILS.rand(1, 5);
+            const teams = Store.state.competitions[d];
+            if(!teams) continue;
+            const team = UTILS.choice(teams);
+            if(!team || team.id === Store.state.club.id || !team.squad || team.squad.length <= 12) continue;
+            const p = UTILS.choice(team.squad);
+            if(!p) continue;
+            if(entries.some(e => e.id === p.id) || Store.state.market.some(e => e.id === p.id)) continue;
+            entries.push({ ...p, fromClub: team.name, fromClubId: team.id });
+        }
+        return entries;
+    },
+
+    // --- AI-ONDERLINGE TRANSFERS (alleen als de window open is) ---
+    simulateAITransfers() {
+        if(!this.isTransferWindowOpen()) return;
+
+        const numTransfers = UTILS.rand(1, 3);
+        for(let i = 0; i < numTransfers; i++) {
+            // Verkoper: willekeurige club met genoeg spelers
+            const dSell = UTILS.rand(1, 5);
+            const sellers = (Store.state.competitions[dSell] || []).filter(t => t.id !== Store.state.club.id && t.squad && t.squad.length > 13);
+            if(sellers.length === 0) continue;
+            const seller = UTILS.choice(sellers);
+            const pIdx = UTILS.rand(0, seller.squad.length - 1);
+            const player = seller.squad[pIdx];
+
+            // Koper: club uit dezelfde of een hogere divisie (met ruimte in de selectie)
+            const dBuy = Math.max(1, dSell - UTILS.rand(0, 1));
+            const buyers = (Store.state.competitions[dBuy] || []).filter(t => t.id !== Store.state.club.id && t.id !== seller.id && t.squad && t.squad.length < 22);
+            if(buyers.length === 0) continue;
+            const buyer = UTILS.choice(buyers);
+
+            seller.squad.splice(pIdx, 1);
+            buyer.squad.push(player);
+            this.recalcTeamStrength(seller);
+            this.recalcTeamStrength(buyer);
+
+            // Als hij op de markt stond, is hij niet langer te koop
+            Store.state.market = Store.state.market.filter(e => e.id !== player.id);
+
+            if(!Store.state.news) Store.state.news = [];
+            const txt = UTILS.choice(CONFIG.newsTemplates.transfer)
+                .replace('[PLAYER]', player.name)
+                .replace('[CLUB]', buyer.name);
+            Store.state.news = [{ id: UTILS.rid(), week: Store.state.game.day, type: 'transfer', text: txt, club: buyer.name }, ...Store.state.news].slice(0, 25);
+        }
+    },
+
+    // --- TOPSCORERS ---
+    // Houdt per speler het aantal doelpunten dit seizoen bij (alle divisies).
+    recordGoals(events, homeTeam, awayTeam) {
+        if(!events || events.length === 0) return;
+        if(!Store.state.topScorers) Store.state.topScorers = {};
+
+        events.forEach(ev => {
+            if(ev.type !== 'goal' || !ev.scorerId) return;
+            const club = ev.side === 'home' ? homeTeam : awayTeam;
+            const existing = Store.state.topScorers[ev.scorerId];
+            if(existing) {
+                existing.goals++;
+                existing.name = ev.scorerName || existing.name;
+                existing.club = club.name;
+                existing.division = this.findClubDivision(club.id);
+            } else {
+                Store.state.topScorers[ev.scorerId] = {
+                    name: ev.scorerName,
+                    club: club.name,
+                    division: this.findClubDivision(club.id),
+                    goals: 1
+                };
+            }
+        });
+    },
+
+    findClubDivision(clubId) {
+        for(let d = 1; d <= 5; d++) {
+            if(Store.state.competitions[d] && Store.state.competitions[d].some(t => t.id === clubId)) return d;
+        }
+        return Store.state.club.division;
+    },
+
     // --- SPONSOR ONDERHANDELINGEN ---
     negotiateSponsor(id, action) {
         const offerIdx = Store.state.club.sponsorOffers.findIndex(o => o.id === id);
@@ -391,11 +729,6 @@ createPlayer(posOverride, ageOverride) {
     },
 
 placeBid(id) {
-        // 1. Check Transfer Window
-        if(!this.isTransferWindowOpen()) {
-            return UI.toast("⛔ Markt gesloten! Wacht tot zomer/winter.");
-        }
-        
         const p = Store.state.market.find(x=>x.id===id); if(!p) return;
         const myDiv = Store.state.club.division; // Jouw divisie (bijv. 5)
 
@@ -436,8 +769,11 @@ placeBid(id) {
         }
 
         // --- BIEDEN VIA MODAL ---
+        const isOpen = this.isTransferWindowOpen();
         const minV = Math.round(p.value * 0.9); const maxV = Math.round(p.value * 1.3);
-        const info = `Marktwaarde-indicatie: <strong>${UTILS.fmtMoney(minV)} - ${UTILS.fmtMoney(maxV)}</strong><br>Doe een bod op <strong>${p.name}</strong> (${p.age} jr, OVR ${p.ovr}):`;
+        const fromClub = p.fromClub ? ` van <strong>${p.fromClub}</strong>` : "";
+        let info = `Marktwaarde-indicatie: <strong>${UTILS.fmtMoney(minV)} - ${UTILS.fmtMoney(maxV)}</strong><br>Doe een bod op <strong>${p.name}</strong>${fromClub} (${p.age} jr, OVR ${p.ovr}):`;
+        if(!isOpen) info += `<br><br><span style="color:#fbbf24">⏳ De transfermarkt is gesloten. Bij een akkoord sluit hij pas aan bij ${this.nextWindowLabel()}.</span>`;
 
         UI.prompt(`💸 Bod op ${p.name}`, info, p.value, (val) => {
             const bid = parseInt(val);
@@ -448,7 +784,7 @@ placeBid(id) {
             const required = this.getRequiredBid(p);
 
             if(bid >= required) {
-                if(Store.state.team.length >= 30) return UI.toast("Selectie is vol!");
+                if(Store.state.team.length >= 30 && isOpen) return UI.toast("Selectie is vol!");
                 
                 // Succes bericht aanpassen op basis van leeftijd
                 let welcomeMsg = "";
@@ -457,10 +793,25 @@ placeBid(id) {
                 else welcomeMsg = `🤝 "De deal is rond."`;
 
                 Store.state.club.budget -= bid;
-                p.contractYears = Math.max(2, p.contractYears || 2); // Nieuwe aankoop tekent minimaal 2 seizoenen
-                Store.state.team.push(p); Store.state.market = Store.state.market.filter(x=>x.id !== id);
-                Store.save(); UI.render(); 
-                UI.alert("✅ Bod geaccepteerd!", `${welcomeMsg}<br><br><strong>${p.name}</strong> is speler van ${Store.state.club.name}.`);
+                const hydrated = this.hydrateAIPlayer(p);
+                hydrated.contractYears = Math.max(2, hydrated.contractYears || 2); // Nieuwe aankoop tekent minimaal 2 seizoenen
+
+                // Haal hem weg bij zijn (AI-)club en van de markt
+                const found = this.findAIPlayer(p.id);
+                if(found) { found.team.squad.splice(found.index, 1); this.recalcTeamStrength(found.team); }
+                Store.state.market = Store.state.market.filter(x=>x.id !== id);
+
+                if(isOpen) {
+                    Store.state.team.push(hydrated);
+                    this.validateLineup();
+                    Store.save(); UI.render(); 
+                    UI.alert("✅ Bod geaccepteerd!", `${welcomeMsg}<br><br><strong>${p.name}</strong> is speler van ${Store.state.club.name}.`);
+                } else {
+                    if(!Store.state.pendingSignings) Store.state.pendingSignings = [];
+                    Store.state.pendingSignings.push({ player: hydrated, from: p.fromClub || "een andere club", fee: bid });
+                    Store.save(); UI.render();
+                    UI.alert("🤝 Deal afgesproken!", `${welcomeMsg}<br><br><strong>${p.name}</strong> sluit zich aan bij ${Store.state.club.name} zodra ${this.nextWindowLabel()} begint.`);
+                }
             } else { 
                 UI.alert("❌ Bod geweigerd", `De club (en zaakwaarnemer) willen minstens <strong>${UTILS.fmtMoney(required)}</strong>.`); 
             }
@@ -470,6 +821,7 @@ placeBid(id) {
     extendContract(id) {
         const p = Store.state.team.find(x => x.id === id);
         if(!p) return;
+        if(this.hasPendingSale(id)) return UI.toast("Deze speler is al verkocht en wacht op de transferwindow.");
 
         // Tekengeld = 15% van marktwaarde, contract +2 seizoenen, salaris +15%
         const cost = Math.round(p.value * 0.15);
@@ -497,7 +849,12 @@ placeBid(id) {
         );
     },
 
+    hasPendingSale(playerId) {
+        return !!(Store.state.pendingSales || []).find(s => s.playerId === playerId);
+    },
+
     toggleTransferList(id) {
+        if(this.hasPendingSale(id)) return UI.toast("Deze speler is al verkocht en wacht op de transferwindow.");
         const idx = Store.state.transferList.indexOf(id);
         if(idx > -1) { Store.state.transferList.splice(idx, 1); UI.toast("Van transferlijst."); } 
         else { Store.state.transferList.push(id); UI.toast("Op transferlijst."); }
@@ -513,14 +870,25 @@ placeBid(id) {
         if(Store.state.team.length <= 11) return UI.toast("Minimaal 11 spelers houden!");
         
         const p = Store.state.team[pIndex];
-        Store.state.club.budget += offer.amount;
-        Store.state.team.splice(pIndex, 1); Store.state.incomingOffers.splice(oIdx, 1);
+        Store.state.incomingOffers.splice(oIdx, 1);
         const tlIdx = Store.state.transferList.indexOf(offer.playerId); if(tlIdx > -1) Store.state.transferList.splice(tlIdx, 1);
-        if(Store.state.training && Store.state.training.selected) {
-            Store.state.training.selected = Store.state.training.selected.filter(id => id !== p.id);
+
+        if(this.isTransferWindowOpen()) {
+            Store.state.club.budget += offer.amount;
+            Store.state.team.splice(pIndex, 1);
+            if(Store.state.training && Store.state.training.selected) {
+                Store.state.training.selected = Store.state.training.selected.filter(id => id !== p.id);
+            }
+            this.validateLineup();
+            Store.save(); UI.render(); 
+            UI.alert("🤝 Deal!", `<strong>${p.name}</strong> verkocht aan ${offer.club} voor <strong>${UTILS.fmtMoney(offer.amount)}</strong>.`);
+        } else {
+            // Window dicht: deal is rond, maar hij blijft gewoon inzetbaar tot de window opengaat
+            if(!Store.state.pendingSales) Store.state.pendingSales = [];
+            Store.state.pendingSales.push({ playerId: p.id, playerName: p.name, club: offer.club, amount: offer.amount });
+            Store.save(); UI.render();
+            UI.alert("🤝 Deal afgesproken!", `<strong>${p.name}</strong> vertrekt naar ${offer.club} voor <strong>${UTILS.fmtMoney(offer.amount)}</strong> zodra ${this.nextWindowLabel()} begint.<br><br>Hij blijft tot dan gewoon inzetbaar.`);
         }
-        Store.save(); UI.render(); 
-        UI.alert("🤝 Deal!", `<strong>${p.name}</strong> verkocht aan ${offer.club} voor <strong>${UTILS.fmtMoney(offer.amount)}</strong>.`);
     },
 
     rejectOffer(offerId) {
@@ -754,6 +1122,9 @@ processMatchday() {
 
         // 1. Check of seizoen voorbij is
         if(Store.state.game.day > this.getSeasonLength()) { this.endSeason(); return; }
+
+        // 1.5. Vooraf afgesproken transfers uitvoeren zodra de window opengaat
+        this.processPendingDeals();
         
         // 2. Voorbereiding: opstelling repareren (blessures/schorsingen/verkopen)
         //    en teamsterkte berekenen op basis van de opgestelde 11
@@ -811,10 +1182,12 @@ processMatchday() {
         // 6. Simuleer competities (Div 1 t/m 5) volgens het schema
         for(let div = 1; div <= 5; div++) this.simulateRound(div, report);
         
-        // 7. Simuleer transfers (AI) en ververs markt
+        // 7. Simuleer transfers: AI-clubs bieden op jouw spelers, AI-clubs handelen
+        //    onderling (alleen tijdens de window), en de markt ververst
         this.simulateTransfers();
+        this.simulateAITransfers();
         Store.state.market.splice(0, 3); 
-        Store.state.market.push(...this.generateMarket(3)); 
+        Store.state.market.push(...this.refreshMarket(3)); 
         Store.state.market.sort((a,b)=>b.ovr-a.ovr);
         
         // 8. Nieuws genereren over deze speelronde
@@ -957,11 +1330,15 @@ simulateRound(divNr, report) {
     },
 
 simulateTransfers() {
-        // Geen AI transfers als markt dicht is
-        if(!this.isTransferWindowOpen()) return;
+        // AI-clubs mogen het hele jaar door bieden op jouw spelers (net als in het echt,
+        // onderhandelingen starten ruim voor de window). Buiten de window blijft een
+        // geaccepteerd bod 'pending' tot de window opengaat (zie processPendingDeals/acceptOffer).
+        const windowOpen = this.isTransferWindowOpen();
+        const chanceMultiplier = windowOpen ? 1 : 0.4;
 
         Store.state.team.forEach(p => {
-            let chance = Store.state.transferList.includes(p.id) ? 0.25 : (p.ovr > 75 ? 0.02 : 0);
+            if(this.hasPendingSale(p.id)) return; // al verkocht, wacht op window
+            let chance = (Store.state.transferList.includes(p.id) ? 0.25 : (p.ovr > 75 ? 0.02 : 0)) * chanceMultiplier;
             if(Math.random() < chance) {
                 const existing = Store.state.incomingOffers.find(o => o.playerId === p.id);
                 if(existing) return;
@@ -1037,31 +1414,35 @@ generateNews() {
         s.news = [...newsItems, ...s.news].slice(0, 25);
     },
 
-    // Hulpfunctie: Kies een doelpuntenmaker op basis van ATT stat
+    // Hulpfunctie: Kies een doelpuntenmaker op basis van aanvalskracht.
+    // Werkt zowel met volledige spelers (att/def/spd) als lichte AI-selecties
+    // (alleen ovr) — geeft altijd {id, name} terug zodat we topscorers kunnen bijhouden.
     pickScorer(team) {
-        if(!team || team.length === 0) return UTILS.genName().split(" ")[1];
+        const fallback = () => { const n = UTILS.genName(); return { id: null, name: n.split(" ")[1] }; };
+        if(!team || team.length === 0) return fallback();
         
         let candidates = [];
         team.forEach(p => {
             if(p.pos === "K") return; // Keepers scoren niet
-            // Gewicht: Aanvallers tellen zwaarder mee
-            let weight = Math.max(1, p.att);
+            // Gewicht: Aanvallers tellen zwaarder mee. 'att' voor volledige spelers,
+            // anders 'ovr' als benadering voor lichte AI-selecties.
+            let weight = Math.max(1, p.att !== undefined ? p.att : p.ovr);
             if(["SP", "RB", "LB"].includes(p.pos)) weight *= 3;
             if(["CAM", "CM"].includes(p.pos)) weight *= 2;
             
             candidates.push({ id: p.id, name: p.name, weight: weight });
         });
-        if(candidates.length === 0) return team[0].name;
+        if(candidates.length === 0) return fallback();
 
         // Totale 'score-kans' massa
         const totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
         let random = Math.random() * totalWeight;
         
         for(const c of candidates) {
-            if(random < c.weight) return c.name;
+            if(random < c.weight) return c;
             random -= c.weight;
         }
-        return candidates[0].name; // Fallback
+        return candidates[0]; // Fallback
     },
 
     // --- TRAINING LOGIC ---
@@ -1207,15 +1588,15 @@ generateNews() {
             // Thuis scoort?
             if(Math.random() < hChance) {
                 hGoals++;
-                const scorer = isPlayerHome ? this.pickScorer(myLineup) : UTILS.genName().split(" ")[1]; // Alleen achternaam voor AI
-                events.push({ min: minute, type: 'goal', side: 'home', text: `⚽ ${minute}' Goal: ${scorer}` });
+                const scorer = isPlayerHome ? this.pickScorer(myLineup) : this.pickScorer(h.squad);
+                events.push({ min: minute, type: 'goal', side: 'home', text: `⚽ ${minute}' Goal: ${scorer.name}`, scorerId: scorer.id, scorerName: scorer.name });
             }
 
             // Uit scoort?
             if(Math.random() < aChance) {
                 aGoals++;
-                const scorer = isPlayerAway ? this.pickScorer(myLineup) : UTILS.genName().split(" ")[1];
-                events.push({ min: minute, type: 'goal', side: 'away', text: `⚽ ${minute}' Goal: ${scorer}` });
+                const scorer = isPlayerAway ? this.pickScorer(myLineup) : this.pickScorer(a.squad);
+                events.push({ min: minute, type: 'goal', side: 'away', text: `⚽ ${minute}' Goal: ${scorer.name}`, scorerId: scorer.id, scorerName: scorer.name });
             }
 
             // 2. KANS OP ROOD (Zeer klein, maar grote impact)
@@ -1270,6 +1651,8 @@ generateNews() {
         if(gh > ga) { h.won++; h.pts+=3; a.lost++; }
         else if(ga > gh) { a.won++; a.pts+=3; h.lost++; }
         else { h.draw++; h.pts++; a.draw++; a.pts++; } 
+
+        this.recordGoals(resultObj.events, h, a);
     },
 
 endSeason() {
@@ -1399,19 +1782,56 @@ endSeason() {
         else if(newDiv > oldDiv) msg += "😞 <strong>GEDEGRADEERD...</strong> Succes in Divisie " + newDiv;
         else msg += "Je blijft in Divisie " + newDiv;
 
+        // 3b. Topscorer van het seizoen (voordat de tellers resetten)
+        if(Store.state.topScorers) {
+            const scorers = Object.values(Store.state.topScorers).sort((a,b) => b.goals - a.goals);
+            if(scorers.length > 0) {
+                const top = scorers[0];
+                msg += `<br><br>⚽ <strong>Topscorer (Divisie ${top.division}):</strong> ${top.name} (${top.club}) — ${top.goals} goals`;
+            }
+        }
+        Store.state.topScorers = {};
+
+        // 3c. AI-selecties ontwikkelen: ouder worden, groeien/verzwakken, pensioen
+        this.developAISquads();
+
         // 4. Overige resets
         Store.state.game.season++;
         Store.state.game.day = 1;
-        Store.state.team.forEach(p => { 
-            p.age++; 
-            p.value = Math.round(p.ovr * p.ovr * 25);
-            p.injuredWeeks = 0;
-            p.suspended = 0;
-        });
         Store.state.transferList = []; 
         Store.state.incomingOffers = [];
         Store.state.seasonResults = [];
         Store.state.results = [];
+
+        // 4a. Spelerontwikkeling voor je eigen selectie: leeftijd, groei/verval, pensioen
+        let retiring = [];
+        let growthReport = [];
+        Store.state.team.forEach(p => {
+            p.age++;
+            p.injuredWeeks = 0;
+            p.suspended = 0;
+            if(Math.random() < this.retirementChance(p.age)) {
+                retiring.push(p);
+                return;
+            }
+            const delta = this.developPlayer(p);
+            if(delta > 0) growthReport.push({ name: p.name, delta });
+        });
+
+        if(retiring.length > 0) {
+            const retiringIds = retiring.map(p => p.id);
+            Store.state.team = Store.state.team.filter(p => !retiringIds.includes(p.id));
+            if(Store.state.training && Store.state.training.selected) {
+                Store.state.training.selected = Store.state.training.selected.filter(id => !retiringIds.includes(id));
+            }
+            msg += `<br><br>👋 <strong>Met pensioen:</strong><br>- ${retiring.map(p => `${p.name} (${p.age} jr)`).join("<br>- ")}`;
+        }
+
+        if(growthReport.length > 0) {
+            growthReport.sort((a,b) => b.delta - a.delta);
+            const top = growthReport.slice(0, 3);
+            msg += `<br><br>📈 <strong>Grootste ontwikkeling:</strong><br>- ${top.map(g => `${g.name} (+${g.delta})`).join("<br>- ")}`;
+        }
 
         // 4b. CONTRACTEN: elk seizoen telt af; spelers zonder contract vertrekken
         Store.state.team.forEach(p => p.contractYears--);

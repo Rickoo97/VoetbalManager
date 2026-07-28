@@ -18,6 +18,12 @@ export const Views = {
         // 1. Meldingen
         const offersLen = Store.state.incomingOffers.length;
         let offersHtml = offersLen > 0 ? `<div class="card" style="background:rgba(34,197,94,0.1); border-color:#22c55e"><strong>🚨 Je hebt ${offersLen} bod(en)!</strong><br><span style="font-size:13px">Ga naar Transfermarkt.</span></div>` : "";
+
+        const pendingCount = (Store.state.pendingSignings || []).length + (Store.state.pendingSales || []).length;
+        let pendingHtml = "";
+        if(pendingCount > 0 && !Engine.isTransferWindowOpen()) {
+            pendingHtml = `<div class="card" style="background:rgba(251,191,36,0.1); border-color:#fbbf24">⏳ <strong>${pendingCount} lopende transfer(s)</strong><br><span style="font-size:13px">Worden officieel zodra ${Engine.nextWindowLabel()} begint.</span></div>`;
+        }
         
         let sponsorHtml = Store.state.club.sponsor 
             ? `<div class="card" style="background:rgba(34,197,94,0.1); border-color:#22c55e">Sponsor: <strong>${Store.state.club.sponsor.name}</strong> (+ ${UTILS.fmtMoney(Store.state.club.sponsor.amount)}/wk)</div>`
@@ -128,7 +134,7 @@ export const Views = {
             </div>`;
         }
 
-        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${sponsorHtml}${boardHtml}${statsGrid}${nextHtml}<div class="card"><h3>Laatste Resultaat</h3>${resHTML}</div>`;
+        d.innerHTML=`<h2>Overzicht</h2>${offersHtml}${pendingHtml}${sponsorHtml}${boardHtml}${statsGrid}${nextHtml}<div class="card"><h3>Laatste Resultaat</h3>${resHTML}</div>`;
         return d;
     },
 
@@ -266,14 +272,18 @@ export const Views = {
             let conText = `${years} szn`;
             if(years <= 1) { conColor = "color:#ef4444; font-weight:bold"; conText += " ⚠️"; }
 
-            // Status: blessure / schorsing / basisspeler
+            // Status: verkocht (wacht op window) / blessure / schorsing / basisspeler
+            const pendingSale = (Store.state.pendingSales || []).find(s => s.playerId === p.id);
             let status = inLineup.has(p.id) ? `<span class="pill" style="background:rgba(34,197,94,0.15); color:#22c55e">Basis</span>` : `<span class="muted" style="font-size:11px">Bank</span>`;
             if(p.injuredWeeks > 0) status = `<span style="color:#ef4444; font-size:12px">🚑 ${p.injuredWeeks} wk</span>`;
             else if(p.suspended > 0) status = `<span style="color:#ef4444; font-size:12px">🟥 Geschorst</span>`;
+            if(pendingSale) status = `<span style="color:#fbbf24; font-size:12px">🚚 Vertrekt (→ ${pendingSale.club})</span>`;
 
             const onList = Store.state.transferList.includes(p.id);
             let btnAction = "";
-            if(years <= 1) {
+            if(pendingSale) {
+                btnAction = `<span class="muted" style="font-size:11px">Verkocht</span>`;
+            } else if(years <= 1) {
                  btnAction = `<button class="primary btn-extend" data-id="${p.id}" style="font-size:10px; padding:4px 6px">✍️ Verleng</button>`;
             } else {
                  const btnClass = onList ? "secondary" : "danger";
@@ -282,13 +292,14 @@ export const Views = {
             }
 
             const face = UTILS.getPlayerFace(p.id);
+            const potentialTag = (p.potential && p.potential >= p.ovr + 10) ? ` <span title="Groot potentieel (${p.potential})" style="font-size:11px">🌟</span>` : "";
 
             h+=`<tr>
                 <td><span class="pill ${p.pos === 'K' ? 'pill-gk' : ''}">${p.pos}</span></td>
                 <td>
                     <div class="club-row">
                         ${face}
-                        <div><strong>${p.flag || ''} ${p.name}</strong><br><span class="muted">${p.age} jr • ${UTILS.fmtMoney(p.wage)}/wk</span></div>
+                        <div><strong>${p.flag || ''} ${p.name}</strong>${potentialTag}<br><span class="muted">${p.age} jr • ${UTILS.fmtMoney(p.wage)}/wk</span></div>
                     </div>
                 </td>
                 <td style="${c};font-weight:bold">${p.ovr}</td>
@@ -301,7 +312,7 @@ export const Views = {
                 <td>${btnAction}</td>
             </tr>`;
         });
-        d.innerHTML=h+`</tbody></table><p class="muted" style="font-size:12px; margin-top:10px">* Spelers met nog 1 seizoen contract kun je verlengen. Contracten lopen af aan het einde van het seizoen.</p></div>`;
+        d.innerHTML=h+`</tbody></table><p class="muted" style="font-size:12px; margin-top:10px">* Spelers met nog 1 seizoen contract kun je verlengen. Contracten lopen af aan het einde van het seizoen. 🌟 = groot groeipotentieel.</p></div>`;
         return d;
     },
 
@@ -313,13 +324,33 @@ export const Views = {
 
         let header = `<h2>Transfermarkt <span class="badge" style="background:${statusColor};color:white;font-size:12px;vertical-align:middle;margin-left:10px">${statusText}</span></h2>`;
 
+        let banner = "";
         if(!isOpen) {
-            d.innerHTML = header + `<div class="card" style="text-align:center; padding:40px; color:var(--text-muted)">
-                <div style="font-size:40px; margin-bottom:10px">🔒</div>
-                <h3>De transfermarkt is gesloten.</h3>
-                <p>Je kunt alleen spelers kopen en verkopen tijdens de zomer- en winterstop.</p>
+            banner = `<div class="card" style="background:rgba(251,191,36,0.1); border-color:#fbbf24">
+                ⏳ <strong>De transfermarkt is gesloten</strong> tot ${Engine.nextWindowLabel()}.
+                <br><span style="font-size:12px" class="muted">Je kunt nog steeds bieden en biedingen accepteren — deals worden dan pas officieel zodra de window opengaat.</span>
             </div>`;
-            return d;
+        }
+
+        // --- LOPENDE TRANSFERS (vooraf afgesproken deals, wachtend op de window) ---
+        const pendingIn = Store.state.pendingSignings || [];
+        const pendingOut = Store.state.pendingSales || [];
+        let pendingHtml = "";
+        if(pendingIn.length > 0 || pendingOut.length > 0) {
+            pendingHtml += `<h3>⏳ Lopende Transfers</h3><div class="card">`;
+            pendingIn.forEach(s => {
+                pendingHtml += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px dashed var(--border)">
+                    <span>📥 <strong>${s.player.name}</strong> <span class="muted">(van ${s.from})</span></span>
+                    <span style="color:#22c55e">${UTILS.fmtMoney(s.fee)}</span>
+                </div>`;
+            });
+            pendingOut.forEach(s => {
+                pendingHtml += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px dashed var(--border)">
+                    <span>📤 <strong>${s.playerName}</strong> <span class="muted">→ ${s.club}</span></span>
+                    <span style="color:#22c55e">${UTILS.fmtMoney(s.amount)}</span>
+                </div>`;
+            });
+            pendingHtml += `</div>`;
         }
 
         let offersHtml = "";
@@ -339,27 +370,29 @@ export const Views = {
             offersHtml += `</div>`;
         } else { offersHtml = `<div class="card" style="padding:15px; text-align:center; color:#aaa">Geen openstaande biedingen.</div>`; }
 
-        let marketHtml = `<h3>🛒 Spelers Kopen</h3><div class="card"><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Waarde Indicatie</th><th>Actie</th></tr></thead><tbody>`;
+        let marketHtml = `<h3>🛒 Spelers Kopen</h3><div class="card"><table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Van</th><th>Waarde Indicatie</th><th>Actie</th></tr></thead><tbody>`;
         Store.state.market.forEach(p=>{
             let c=p.ovr>=70?"color:#22c55e":"";
             const min = Math.round(p.value * 0.9); const max = Math.round(p.value * 1.3);
             const face = UTILS.getPlayerFace(p.id);
+            const potentialTag = (p.potential && p.potential >= p.ovr + 10) ? ` <span title="Groot potentieel" style="font-size:11px">🌟</span>` : "";
             marketHtml+=`<tr>
                 <td><span class="pill ${p.pos === 'K' ? 'pill-gk' : ''}">${p.pos}</span></td>
                 <td>
                     <div class="club-row">
                         ${face}
-                        <div><strong>${p.flag || ''} ${p.name}</strong><br><span class="muted">${p.age} jr • ${UTILS.fmtMoney(p.wage)}/wk</span></div>
+                        <div><strong>${p.flag || ''} ${p.name}</strong>${potentialTag}<br><span class="muted">${p.age} jr</span></div>
                     </div>
                 </td>
                 <td style="${c};font-weight:bold">${p.ovr}</td>
+                <td class="muted" style="font-size:12px">${p.fromClub || '-'}</td>
                 <td class="money">${UTILS.fmtMoney(min)} - ${UTILS.fmtMoney(max)}</td>
                 <td><button class="primary btn-bid" data-id="${p.id}">Bied</button></td>
             </tr>`;
         });
         marketHtml+=`</tbody></table></div>`;
         
-        d.innerHTML = header + offersHtml + marketHtml;
+        d.innerHTML = header + banner + pendingHtml + offersHtml + marketHtml;
         return d;
     },
 
@@ -371,18 +404,24 @@ export const Views = {
         let listHtml = "";
         if(Store.state.youthAcademy.length === 0) { listHtml = `<p class="muted">Geen talenten. Stuur de scout op pad!</p>`; } 
         else {
-            listHtml = `<table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Actie</th></tr></thead><tbody>`;
+            listHtml = `<table><thead><tr><th>Pos</th><th>Naam</th><th>OVR</th><th>Potentie</th><th>Actie</th></tr></thead><tbody>`;
             Store.state.youthAcademy.forEach(p => { 
                 const face = UTILS.getPlayerFace(p.id);
+                const gap = (p.potential || p.ovr) - p.ovr;
+                let potHtml = `<span class="muted">-</span>`;
+                if(gap >= 15) potHtml = `<span style="color:#22c55e; font-weight:bold">🌟🌟🌟 Toptalent</span>`;
+                else if(gap >= 8) potHtml = `<span style="color:#22c55e">🌟🌟 Veelbelovend</span>`;
+                else if(gap >= 3) potHtml = `<span style="color:#facc15">🌟 Beperkt</span>`;
                 listHtml += `<tr>
                     <td>${p.pos}</td>
                     <td>
                         <div class="club-row">
                             ${face}
-                            <strong>${p.name}</strong> (${p.age} jr)
+                            <strong>${p.flag || ''} ${p.name}</strong> (${p.age} jr)
                         </div>
                     </td>
                     <td>${p.ovr}</td>
+                    <td>${potHtml}</td>
                     <td><button class="primary btn-sign" data-id="${p.id}">Contract (€ 5.000)</button></td>
                 </tr>`; 
             });
@@ -503,6 +542,35 @@ export const Views = {
         </div></div>`;
         d.innerHTML=h; 
         return d; 
+    },
+
+    TopScorers() {
+        const d = document.createElement('div');
+        const v = Store.state.ui.viewDivision;
+        let c = `<div class="chips" style="margin-bottom:15px">`;
+        for(let i=1; i<=5; i++) c += `<span class="chip ${v===i?'active':''}" onclick="Store.state.ui.viewDivision=${i};UI.render()">${UTILS.getLeagueShort(i)}</span>`;
+        c += `</div>`;
+
+        const all = Object.values(Store.state.topScorers || {}).filter(s => s.division === v).sort((a,b) => b.goals - a.goals);
+
+        let rows = "";
+        if(all.length === 0) {
+            rows = `<tr><td colspan="4" class="muted" style="text-align:center; padding:20px">Nog geen doelpunten dit seizoen in deze divisie.</td></tr>`;
+        } else {
+            all.slice(0, 20).forEach((s, i) => {
+                const isMe = s.club === Store.state.club.name;
+                const badge = UTILS.getClubBadge(s.club, 26);
+                rows += `<tr class="${isMe ? 'my-club' : ''}">
+                    <td>${i+1}</td>
+                    <td><strong>${s.name}</strong></td>
+                    <td><div class="club-row">${badge} <span>${s.club}</span></div></td>
+                    <td><strong style="color:var(--accent)">${s.goals}</strong></td>
+                </tr>`;
+            });
+        }
+
+        d.innerHTML = `<h2>⚽ Topscorers</h2><div class="card">${c}<table><thead><tr><th>#</th><th>Speler</th><th>Club</th><th>Goals</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        return d;
     },
 
     Fixtures() { 
