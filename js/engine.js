@@ -688,22 +688,32 @@ createPlayer(posOverride, ageOverride) {
     },
 
     // --- SPONSOR ONDERHANDELINGEN ---
-    negotiateSponsor(id, action) {
-        const offerIdx = Store.state.club.sponsorOffers.findIndex(o => o.id === id);
+    // 'type' is 'shirt' of 'stadium'; elk heeft zijn eigen deal + aanbiedingenlijst.
+    sponsorFieldKeys(type) {
+        return type === 'stadium'
+            ? { sponsor: 'stadiumSponsor', offers: 'stadiumSponsorOffers' }
+            : { sponsor: 'shirtSponsor', offers: 'shirtSponsorOffers' };
+    },
+
+    negotiateSponsor(type, id, action) {
+        const keys = this.sponsorFieldKeys(type);
+        const offersArr = Store.state.club[keys.offers];
+        const offerIdx = offersArr.findIndex(o => o.id === id);
         if(offerIdx === -1) return;
-        const offer = Store.state.club.sponsorOffers[offerIdx];
+        const offer = offersArr[offerIdx];
+        const label = type === 'stadium' ? 'Stadionsponsor' : 'Shirtsponsor';
 
         if(action === 'accept') {
-            Store.state.club.sponsor = { name: offer.name, amount: offer.amount, weeksLeft: offer.duration };
-            Store.state.club.sponsorOffers = []; // Andere aanbiedingen vervallen
+            Store.state.club[keys.sponsor] = { name: offer.name, amount: offer.amount, weeksLeft: offer.duration };
+            Store.state.club[keys.offers] = []; // Andere aanbiedingen vervallen
             Store.save();
             UI.render();
-            UI.alert("🤝 Deal!", `Je hebt getekend bij <strong>${offer.name}</strong> voor <strong>${UTILS.fmtMoney(offer.amount)}</strong> per week.`);
+            UI.alert("🤝 Deal!", `${label}: je hebt getekend bij <strong>${offer.name}</strong> voor <strong>${UTILS.fmtMoney(offer.amount)}</strong> per week.`);
         } 
         else if(action === 'negotiate') {
             // Risico: 40% kans dat ze weglopen
             if(Math.random() < 0.4) {
-                Store.state.club.sponsorOffers.splice(offerIdx, 1);
+                offersArr.splice(offerIdx, 1);
                 Store.save();
                 UI.render();
                 UI.alert("😡 Onderhandeling mislukt", `${offer.name} vond je te hebberig en heeft het aanbod ingetrokken.`);
@@ -720,7 +730,8 @@ createPlayer(posOverride, ageOverride) {
         }
     },
 
-    generateSponsorOffers() {
+    // Shirtsponsor: waarde schaalt met divisie (zichtbaarheid op tv/tribune)
+    generateShirtSponsorOffers() {
         let offers = []; 
         const divFactor = (6 - Store.state.club.division); 
         let pool = Store.state.club.division <= 2 ? CONFIG.sponsors.global : (Store.state.club.division <= 3 ? CONFIG.sponsors.national : CONFIG.sponsors.local);
@@ -734,7 +745,36 @@ createPlayer(posOverride, ageOverride) {
                 negotiated: false
             });
         }
-        Store.state.club.sponsorOffers = offers;
+        Store.state.club.shirtSponsorOffers = offers;
+    },
+
+    // Stadionsponsor (naamgevingsrechten): waarde schaalt met divisie ÉN met je
+    // stadionniveau — een groter stadion is aantrekkelijker voor sponsors.
+    generateStadiumSponsorOffers() {
+        let offers = [];
+        const divFactor = (6 - Store.state.club.division);
+        const stadiumLevel = Store.state.club.facilities.stadium;
+        let pool = Store.state.club.division <= 2 ? CONFIG.sponsors.global : (Store.state.club.division <= 3 ? CONFIG.sponsors.national : CONFIG.sponsors.local);
+        const base = this.getStadiumSponsorBase(divFactor, stadiumLevel);
+
+        for(let i=0; i<3; i++) {
+            const company = UTILS.choice(pool);
+            const suffix = UTILS.choice(CONFIG.stadiumSuffixes);
+            offers.push({
+                id: UTILS.rid(),
+                name: `${company} ${suffix}`,
+                amount: Math.round(base + UTILS.rand(-1500, 4000)),
+                duration: UTILS.rand(15, 40), // naamgevingsrechten lopen doorgaans langer
+                negotiated: false
+            });
+        }
+        Store.state.club.stadiumSponsorOffers = offers;
+    },
+
+    // Basiswaarde voor stadionsponsor-aanbiedingen (gedeeld met de Faciliteiten-weergave
+    // zodat de getoonde schatting altijd overeenkomt met de echte aanbiedingen)
+    getStadiumSponsorBase(divFactor, stadiumLevel) {
+        return Math.round(12000 * divFactor * (1 + 0.5 * (stadiumLevel - 1)));
     },
 
     scoutYouth() {
@@ -944,9 +984,10 @@ placeBid(id) {
         if(idx > -1) { Store.state.incomingOffers.splice(idx, 1); Store.save(); UI.render(); UI.toast("Bod geweigerd."); }
     },
     
+    // Verouderd alias, gebruikt de shirtsponsor (blijft staan voor compatibiliteit)
     signSponsor(id) { 
-        const o = Store.state.club.sponsorOffers.find(x=>x.id===id); 
-        if(o) { Store.state.club.sponsor = {name:o.name, amount:o.amount, weeksLeft:o.duration}; Store.state.club.sponsorOffers=[]; Store.save(); UI.render(); } 
+        const o = Store.state.club.shirtSponsorOffers.find(x=>x.id===id); 
+        if(o) { Store.state.club.shirtSponsor = {name:o.name, amount:o.amount, weeksLeft:o.duration}; Store.state.club.shirtSponsorOffers=[]; Store.save(); UI.render(); } 
     },
     
 // Wordt alleen aangeroepen bij start nieuw spel
@@ -1156,7 +1197,53 @@ playCupMatch() {
         }
     },
     
-    upgradeFacility(type) { const lvl=Store.state.club.facilities[type]; if(lvl>=8)return UI.toast("Max level"); const c=CONFIG.costs[type][lvl]; if(Store.state.club.budget<c)return UI.toast("Te weinig budget"); Store.state.club.budget-=c; Store.state.club.facilities[type]++; Store.save(); UI.render(); UI.toast("Upgrade!"); },
+    upgradeFacility(type) { 
+        const lvl=Store.state.club.facilities[type]; if(lvl>=8)return UI.toast("Max level"); 
+        const c=CONFIG.costs[type][lvl]; if(Store.state.club.budget<c)return UI.toast("Te weinig budget"); 
+        Store.state.club.budget-=c; Store.state.club.facilities[type]++; 
+        // Bestaande stadionsponsor-aanbiedingen zijn nu verouderd (te laag) — ververs ze
+        if(type === 'stadium' && !Store.state.club.stadiumSponsor) this.generateStadiumSponsorOffers();
+        Store.save(); UI.render(); UI.toast("Upgrade!"); 
+    },
+
+    // --- FACILITEIT-FORMULES ---
+    // Gedeeld tussen de simulatie en de Faciliteiten-weergave zodat de getoonde
+    // cijfers altijd exact overeenkomen met wat er daadwerkelijk gebeurt.
+
+    getMaintenanceCost(type, level) {
+        const rates = { stadium: 500, training: 400, medical: 600 };
+        return (rates[type] || 0) * level;
+    },
+
+    // Tickets per thuiswedstrijd (schaalt met divisie én stadionniveau)
+    getTicketIncomeEstimate(division, stadiumLevel) {
+        return Math.round(4000 * (6 - division) * (1 + 0.35 * (stadiumLevel - 1)));
+    },
+
+    // Extra teamsterkte thuis door een groter stadion
+    getStadiumMatchBonus(level) {
+        return level * 2;
+    },
+
+    getTrainingSlots(level) {
+        if(level >= 4) return 4;
+        if(level >= 2) return 3;
+        return 2;
+    },
+
+    getTrainingGrowthRange(level) {
+        if(level === 1 || level === 2) return { min: 0, max: 1 };
+        if(level === 3 || level === 4) return { min: 0, max: 2 };
+        return { min: 1, max: 2 }; // Level 5+: altijd groei
+    },
+
+    getInjuryChance(medicalLevel) {
+        return Math.max(0.002, 0.012 - medicalLevel * 0.001);
+    },
+
+    getInjuryDurationReduction(medicalLevel) {
+        return Math.floor(medicalLevel / 3);
+    },
     setTactic(key) { 
         Store.state.club.tactic=key; 
         this.validateLineup(); // formatie kan veranderd zijn (bv. 4-4-2 -> 5-3-2)
@@ -1209,21 +1296,37 @@ processMatchday() {
 
         // 5. Financiën (Salaris & Onderhoud)
         const wages = Store.state.team.reduce((sum, p) => sum + p.wage, 0);
-        const maint = (Store.state.club.facilities.stadium * 500) + (Store.state.club.facilities.training * 400) + (Store.state.club.facilities.medical * 600);
+        const f = Store.state.club.facilities;
+        const maint = this.getMaintenanceCost('stadium', f.stadium) + this.getMaintenanceCost('training', f.training) + this.getMaintenanceCost('medical', f.medical);
         
         report.expenses = wages + maint;
         report.breakdown.push({txt:"Salarissen & Onderhoud", amt:-(wages+maint)});
 
-        // Sponsor inkomsten
-        if(Store.state.club.sponsor) {
-            report.income += Store.state.club.sponsor.amount;
-            report.breakdown.push({txt:`Sponsor (${Store.state.club.sponsor.name})`, amt:Store.state.club.sponsor.amount});
+        // Shirtsponsor inkomsten
+        if(Store.state.club.shirtSponsor) {
+            const s = Store.state.club.shirtSponsor;
+            report.income += s.amount;
+            report.breakdown.push({txt:`Shirtsponsor (${s.name})`, amt:s.amount});
             
-            Store.state.club.sponsor.weeksLeft--;
-            if(Store.state.club.sponsor.weeksLeft<=0) { 
-                Store.state.club.sponsor=null; 
-                UI.toast("Sponsor contract afgelopen"); 
-                this.generateSponsorOffers(); 
+            s.weeksLeft--;
+            if(s.weeksLeft<=0) { 
+                Store.state.club.shirtSponsor=null; 
+                UI.toast("Shirtsponsor contract afgelopen"); 
+                this.generateShirtSponsorOffers(); 
+            }
+        }
+
+        // Stadionsponsor inkomsten
+        if(Store.state.club.stadiumSponsor) {
+            const s = Store.state.club.stadiumSponsor;
+            report.income += s.amount;
+            report.breakdown.push({txt:`Stadionsponsor (${s.name})`, amt:s.amount});
+
+            s.weeksLeft--;
+            if(s.weeksLeft<=0) {
+                Store.state.club.stadiumSponsor=null;
+                UI.toast("Stadionsponsor contract afgelopen");
+                this.generateStadiumSponsorOffers();
             }
         }
         
@@ -1467,8 +1570,10 @@ processMatchday() {
         Store.state.club.budget = this.jobStartBudget(targetDiv);
         Store.state.club.facilities = { stadium: 1, training: 1, medical: 1 };
         Store.state.club.tactic = "neutral";
-        Store.state.club.sponsor = null;
-        this.generateSponsorOffers();
+        Store.state.club.shirtSponsor = null;
+        Store.state.club.stadiumSponsor = null;
+        this.generateShirtSponsorOffers();
+        this.generateStadiumSponsorOffers();
 
         Store.state.transferList = [];
         Store.state.incomingOffers = [];
@@ -1510,9 +1615,7 @@ simulateRound(divNr, report) {
             if(h.id === Store.state.club.id) {
                 // Ticket inkomsten (alleen bij thuiswedstrijden)
                 // Schaalt met divisie (meer publiek) en stadionniveau
-                const div = Store.state.club.division;
-                const stadium = Store.state.club.facilities.stadium;
-                const inc = Math.round(4000 * (6 - div) * (1 + 0.35 * (stadium - 1)));
+                const inc = this.getTicketIncomeEstimate(Store.state.club.division, Store.state.club.facilities.stadium);
                 Store.state.club.budget += inc;
                 if(report) { report.income += inc; report.breakdown.push({txt:"Tickets", amt:inc}); }
             }
@@ -1661,11 +1764,7 @@ generateNews() {
         if(Store.state.training.done) return UI.toast("Training voor deze week is al gedaan!");
         
         const lvl = Store.state.club.facilities.training;
-        
-        // BEPAAL HET MAX AANTAL SLOTS OP BASIS VAN LEVEL
-        let maxSlots = 2; // Level 1 (basis)
-        if(lvl >= 2) maxSlots = 3; // Level 2 & 3
-        if(lvl >= 4) maxSlots = 4; // Level 4 & 5+
+        const maxSlots = this.getTrainingSlots(lvl);
 
         const player = Store.state.team.find(p => p.id === id);
         if(player && player.injuredWeeks > 0) return UI.toast("Geblesseerde spelers kunnen niet trainen!");
@@ -1694,15 +1793,7 @@ generateNews() {
         t.selected.forEach(pid => {
             const p = Store.state.team.find(x => x.id === pid);
             if(p) {
-                let min = 0;
-                let max = 0;
-
-                if (lvl === 1) { min = 0; max = 1; }       // Lvl 1: +0 of +1
-                else if (lvl === 2) { min = 0; max = 1; }  // Lvl 2: +0 of +1
-                else if (lvl === 3) { min = 0; max = 2; }  // Lvl 3: +0, +1 of +2
-                else if (lvl === 4) { min = 0; max = 2; }  // Lvl 4: +0, +1 of +2
-                else if (lvl >= 5)  { min = 1; max = 2; }  // Lvl 5: +1 of +2 (Altijd groei)
-
+                const { min, max } = this.getTrainingGrowthRange(lvl);
                 const growth = Math.floor(Math.random() * (max - min + 1)) + min;
                 
                 if(growth > 0) {
@@ -1742,7 +1833,7 @@ generateNews() {
         let aStr = a.strength;
         
         // Stadion bonus (alleen als de speler thuis speelt)
-        if(isPlayerHome) hStr += (Store.state.club.facilities.stadium * 2);
+        if(isPlayerHome) hStr += this.getStadiumMatchBonus(Store.state.club.facilities.stadium);
 
         // --- TACTIEK: steen-papier-schaar tegen een random AI tactiek ---
         let note = "";
@@ -1767,7 +1858,7 @@ generateNews() {
 
         // Medische staf: lagere blessurekans en kortere uitval
         const medical = Store.state.club.facilities.medical;
-        const injuryChance = Math.max(0.002, 0.012 - medical * 0.001);
+        const injuryChance = this.getInjuryChance(medical);
 
         // --- DE SIMULATIE (9 blokken van 10 minuten) ---
         let hGoals = 0;
@@ -1838,7 +1929,7 @@ generateNews() {
                     const unlucky = UTILS.choice(candidates);
                     alreadyHurt.add(unlucky.id);
                     // Uitvalduur: 2-6 'ticks' = mist 1 tot 5 wedstrijden; medische staf verkort dit
-                    let duration = UTILS.rand(2, 6) - Math.floor(medical / 3);
+                    let duration = UTILS.rand(2, 6) - this.getInjuryDurationReduction(medical);
                     duration = Math.max(2, duration);
                     unlucky.injuredWeeks = duration;
                     events.push({ min: minute, type: 'injury', side: isPlayerHome ? 'home' : 'away', text: `🚑 ${minute}' Blessure: ${unlucky.name} (${duration - 1} wk uit de roulatie)` });

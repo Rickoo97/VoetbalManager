@@ -1,5 +1,5 @@
 // Service Worker: maakt de game offline speelbaar en installeerbaar (PWA)
-const CACHE_NAME = 'ovm-cache-v3.11.0';
+const CACHE_NAME = 'ovm-cache-v3.12.0';
 
 const ASSETS = [
   '.',
