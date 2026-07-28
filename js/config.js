@@ -1,5 +1,5 @@
 export const CONFIG = {
-    version: "3.11.0", 
+    version: "3.12.0", 
     gameTitle: "Online Voetbal Manager",
     startBudget: 150000,
     currency: "€",
@@ -58,6 +58,9 @@ export const CONFIG = {
         national: ["Jumbo", "Albert Heijn", "Gamma", "Praxis", "Coolblue", "Bol.com", "Hema", "Kruidvat", "MediaMarkt"],
         global: ["Ziggo", "KPN", "Philips", "Heineken", "ASML", "Shell", "ING", "Adidas", "Nike", "Fly Emirates"]
     },
+
+    // Naamgevingsrechten-suffix voor stadionsponsors (bijv. "Philips Stadion")
+    stadiumSuffixes: ["Stadion", "Arena", "Park"],
     
     // --- NIEUWE NAMEN DATABASE PER LAND ---
     nations: {

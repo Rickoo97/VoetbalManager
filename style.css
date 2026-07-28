@@ -295,6 +295,67 @@ tr.promo { background: linear-gradient(90deg, rgba(34,197,94,0.15) 0%, transpare
 tr.rele { background: linear-gradient(90deg, rgba(239,68,68,0.15) 0%, transparent 100%); border-left: 4px solid #ef4444; }
 tr.my-club { font-weight: bold; background: rgba(34, 197, 94, 0.12) !important; outline: 1px solid var(--accent); outline-offset: -1px; }
 
+/* FACILITEITEN */
+.facilities-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.facility-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.level-dots {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.level-dot {
+  width: 16px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+}
+
+.level-dot.filled {
+  background: var(--accent);
+}
+
+.impact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.impact-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  gap: 10px;
+}
+
+.impact-row > span:first-child {
+  flex-shrink: 0;
+}
+
+.impact-row > div {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.impact-arrow {
+  color: var(--text-muted);
+  margin: 0 2px;
+  font-size: 12px;
+}
+
 /* PITCH */
 .pitch-container { position: relative; width: 100%; height: 440px; background: linear-gradient(180deg, #2f855a 0%, #276749 50%, #2f855a 100%); border-radius: 8px; margin-top: 20px; border: 2px solid rgba(255,255,255,0.4); overflow: hidden; }
 .pitch-line { position: absolute; background: rgba(255,255,255,0.3); }

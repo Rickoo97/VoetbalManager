@@ -83,9 +83,19 @@ export const Views = {
             pendingHtml = `<div class="card" style="background:rgba(251,191,36,0.1); border-color:#fbbf24">⏳ <strong>${pendingCount} lopende transfer(s)</strong><br><span style="font-size:13px">Worden officieel zodra ${Engine.nextWindowLabel()} begint.</span></div>`;
         }
         
-        let sponsorHtml = Store.state.club.sponsor 
-            ? `<div class="card" style="background:rgba(34,197,94,0.1); border-color:#22c55e">Sponsor: <strong>${Store.state.club.sponsor.name}</strong> (+ ${UTILS.fmtMoney(Store.state.club.sponsor.amount)}/wk)</div>`
-            : `<div class="card" style="background:rgba(239, 68, 68, 0.1); border-color:#ef4444">⚠️ <strong>Geen sponsor!</strong> Ga snel naar Sponsors om een deal te sluiten.</div>`;
+        const shirtSp = Store.state.club.shirtSponsor;
+        const stadiumSp = Store.state.club.stadiumSponsor;
+        let sponsorHtml = "";
+        if(!shirtSp && !stadiumSp) {
+            sponsorHtml = `<div class="card" style="background:rgba(239, 68, 68, 0.1); border-color:#ef4444">⚠️ <strong>Geen sponsors!</strong> Ga snel naar Sponsors om deals te sluiten.</div>`;
+        } else {
+            let lines = [];
+            if(shirtSp) lines.push(`👕 Shirtsponsor: <strong>${shirtSp.name}</strong> (+${UTILS.fmtMoney(shirtSp.amount)}/wk)`);
+            else lines.push(`⚠️ <strong>Geen shirtsponsor</strong>`);
+            if(stadiumSp) lines.push(`🏟️ Stadionsponsor: <strong>${stadiumSp.name}</strong> (+${UTILS.fmtMoney(stadiumSp.amount)}/wk)`);
+            else lines.push(`⚠️ <strong>Geen stadionsponsor</strong>`);
+            sponsorHtml = `<div class="card" style="background:rgba(34,197,94,0.1); border-color:#22c55e">${lines.join("<br>")}</div>`;
+        }
 
         const board = Store.state.board || { confidence: 80, objective: "Geen" };
     
@@ -256,48 +266,73 @@ export const Views = {
         return d;
     },
 
+    // Bouwt de kaart(en) voor één sponsorsoort ('shirt' of 'stadium'), gedeeld
+    // door de Sponsors-pagina zodat shirt- en stadionsponsor er identiek uitzien.
+    _sponsorSection(type, title, icon) {
+        const sponsorKey = type === 'stadium' ? 'stadiumSponsor' : 'shirtSponsor';
+        const offersKey = type === 'stadium' ? 'stadiumSponsorOffers' : 'shirtSponsorOffers';
+        const current = Store.state.club[sponsorKey];
+        const offers = Store.state.club[offersKey] || [];
+
+        let h = `<h3>${icon} ${title}</h3>`;
+
+        if(current) {
+            const logo = UTILS.getClubBadge(current.name, 48);
+            h += `<div class="card" style="display:flex; align-items:center; gap:15px">
+                ${logo}
+                <div style="flex:1">
+                    <strong style="font-size:18px">${current.name}</strong><br>
+                    <span style="color:var(--accent); font-weight:bold">${UTILS.fmtMoney(current.amount)}</span> / week
+                    <span class="muted"> • nog ${current.weeksLeft} weken</span>
+                </div>
+            </div>`;
+        } else if(offers.length === 0) {
+            h += `<div class="card muted" style="text-align:center; padding:20px">Geen aanbiedingen momenteel.</div>`;
+        } else {
+            offers.forEach(o => {
+                const negotiatedClass = o.negotiated ? "disabled" : "secondary";
+                const negAction = o.negotiated ? "" : `onclick="Engine.negotiateSponsor('${type}', '${o.id}', 'negotiate')"`;
+                const negText = o.negotiated ? "Onderhandeld" : "Onderhandel (+)";
+                const spLogo = UTILS.getClubBadge(o.name, 30);
+
+                h += `<div class="card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
+                    <div style="display:flex; align-items:center; gap:10px">
+                        ${spLogo}
+                        <div>
+                            <strong>${o.name}</strong><br>
+                            <span style="font-size:18px; color:var(--accent); font-weight:bold">${UTILS.fmtMoney(o.amount)}</span> / week<br>
+                            <span class="muted">${o.duration} weken</span>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:5px">
+                        <button class="${negotiatedClass}" ${negAction} style="font-size:12px">${negText}</button>
+                        <button class="primary" onclick="Engine.negotiateSponsor('${type}', '${o.id}', 'accept')">Teken</button>
+                    </div>
+                </div>`;
+            });
+        }
+        return h;
+    },
+
     Sponsors() {
         const d = document.createElement('div');
-        if(Store.state.club.sponsor) {
-            let s = Store.state.club.sponsor;
-            // Fake logo voor sponsor
-            const logo = UTILS.getClubBadge(s.name, 50);
-            d.innerHTML=`<h2>Sponsor</h2><div class="card" style="text-align:center">
-                <div style="display:flex;justify-content:center;margin-bottom:10px">${logo}</div>
-                <h1>${s.name}</h1>
-                <h3>${UTILS.fmtMoney(s.amount)} / week</h3>
-                <p class="muted">Looptijd: nog <strong>${s.weeksLeft}</strong> weken</p>
-            </div>`;
-        } else {
-            let h = `<h2>Sponsors</h2><p class="muted" style="margin-bottom:20px">Kies een sponsor. Je kunt onderhandelen voor een beter bedrag, maar pas op: ze kunnen weglopen!</p>`;
-            
-            if(Store.state.club.sponsorOffers.length === 0) {
-                h += `<div class="card">Geen aanbiedingen momenteel.</div>`;
-            } else {
-                Store.state.club.sponsorOffers.forEach(o => {
-                    const negotiatedClass = o.negotiated ? "disabled" : "secondary";
-                    const negAction = o.negotiated ? "" : `onclick="Engine.negotiateSponsor('${o.id}', 'negotiate')"`;
-                    const negText = o.negotiated ? "Onderhandeld" : "Onderhandel (+)";
-                    const spLogo = UTILS.getClubBadge(o.name, 30);
+        const f = Store.state.club.facilities;
+        const divFactor = 6 - Store.state.club.division;
+        const stadiumEstimate = Engine.getStadiumSponsorBase(divFactor, f.stadium);
 
-                    h += `<div class="card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
-                        <div style="display:flex; align-items:center; gap:10px">
-                            ${spLogo}
-                            <div>
-                                <strong>${o.name}</strong><br>
-                                <span style="font-size:18px; color:var(--accent); font-weight:bold">${UTILS.fmtMoney(o.amount)}</span> / week<br>
-                                <span class="muted">${o.duration} weken</span>
-                            </div>
-                        </div>
-                        <div style="display:flex; gap:5px">
-                            <button class="${negotiatedClass}" ${negAction} style="font-size:12px">${negText}</button>
-                            <button class="primary" onclick="Engine.negotiateSponsor('${o.id}', 'accept')">Teken</button>
-                        </div>
-                    </div>`;
-                });
-            }
-            d.innerHTML = h;
-        } 
+        let h = `<h2>Sponsors</h2><p class="muted" style="margin-bottom:20px">Twee onafhankelijke inkomstenbronnen: een shirtsponsor en een stadionsponsor (naamgevingsrechten). Je kunt onderhandelen voor een beter bedrag, maar pas op: ze kunnen weglopen!</p>`;
+
+        h += this._sponsorSection('shirt', 'Shirtsponsor', '👕');
+
+        if(!Store.state.club.stadiumSponsor) {
+            h += `<div class="card" style="background:rgba(59,130,246,0.08); border-color:#3b82f6; font-size:12px">
+                🏟️ <strong>Tip:</strong> een groter stadion (zie Faciliteiten) maakt je aantrekkelijker voor stadionsponsors.
+                Bij je huidige stadionniveau (Lvl ${f.stadium}) is de indicatieve waarde ongeveer <strong>${UTILS.fmtMoney(stadiumEstimate)}</strong>/week.
+            </div>`;
+        }
+        h += this._sponsorSection('stadium', 'Stadionsponsor', '🏟️');
+
+        d.innerHTML = h;
         return d; 
     },
 
@@ -560,10 +595,94 @@ export const Views = {
     },
 
     Facilities() {
-        const d=document.createElement('div');
+        const d = document.createElement('div');
         const f = Store.state.club.facilities;
-        const btn = (t, l) => l>=8 ? `<button disabled>Max</button>` : `<button class="primary" onclick="Engine.upgradeFacility('${t}')">Upgrade (${UTILS.fmtMoney(CONFIG.costs[t][l])})</button>`;
-        d.innerHTML=`<h2>Faciliteiten</h2><div class="card" style="display:grid;gap:20px;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr))"><div style="border:1px solid var(--border);padding:15px;border-radius:8px"><h3>🏟️ Stadion <span class="badge">Lvl ${f.stadium}</span></h3><p class="muted">Meer tickets.</p>${btn('stadium', f.stadium)}</div><div style="border:1px solid var(--border);padding:15px;border-radius:8px"><h3>🏋️ Training <span class="badge">Lvl ${f.training}</span></h3><p class="muted">Spelersgroei & Jeugd.</p>${btn('training', f.training)}</div><div style="border:1px solid var(--border);padding:15px;border-radius:8px"><h3>🏥 Medisch <span class="badge">Lvl ${f.medical}</span></h3><p class="muted">Minder blessures (Toekomst).</p>${btn('medical', f.medical)}</div></div>`;
+        const div = Store.state.club.division;
+        const divFactor = 6 - div;
+
+        // 8 bolletjes die het huidige niveau tonen
+        const levelDots = (level) => {
+            let dots = '';
+            for(let i = 1; i <= 8; i++) dots += `<span class="level-dot${i <= level ? ' filled' : ''}"></span>`;
+            return `<div class="level-dots">${dots}</div>`;
+        };
+
+        // Eén regel: label + huidige waarde + (indien niet max) pijl naar volgend niveau
+        const impactRow = (label, currentStr, nextStr) => {
+            const nextHtml = nextStr !== null
+                ? `<span class="impact-arrow">→</span> <strong style="color:var(--accent)">${nextStr}</strong>`
+                : `<span class="muted" style="font-size:11px">max</span>`;
+            return `<div class="impact-row"><span class="muted">${label}</span><div>${currentStr} ${nextHtml}</div></div>`;
+        };
+
+        const buildCard = (type, icon, title, tagline, rows) => {
+            const level = f[type];
+            const isMax = level >= 8;
+            const cost = isMax ? null : CONFIG.costs[type][level];
+            const btnHtml = isMax
+                ? `<button disabled style="width:100%">Max. niveau bereikt</button>`
+                : `<button class="primary" onclick="Engine.upgradeFacility('${type}')" style="width:100%">Upgrade naar Lvl ${level + 1} (${UTILS.fmtMoney(cost)})</button>`;
+            const maint = Engine.getMaintenanceCost(type, level);
+
+            return `
+            <div class="facility-card">
+                <h3 style="margin-bottom:2px">${icon} ${title} <span class="badge">Lvl ${level}</span></h3>
+                <p class="muted" style="font-size:12px; margin:0 0 8px">${tagline}</p>
+                ${levelDots(level)}
+                <div class="impact-list">${rows.join('')}</div>
+                <div class="impact-row" style="border-top:1px dashed var(--border); margin-top:4px; padding-top:8px">
+                    <span class="muted">Onderhoud</span><span style="color:#ef4444">-${UTILS.fmtMoney(maint)}/wk</span>
+                </div>
+                <div style="margin-top:12px">${btnHtml}</div>
+            </div>`;
+        };
+
+        // --- STADION ---
+        const nextStadium = f.stadium < 8 ? f.stadium + 1 : null;
+        const ticketNow = Engine.getTicketIncomeEstimate(div, f.stadium);
+        const ticketNext = nextStadium ? Engine.getTicketIncomeEstimate(div, nextStadium) : null;
+        const bonusNow = Engine.getStadiumMatchBonus(f.stadium);
+        const bonusNext = nextStadium ? Engine.getStadiumMatchBonus(nextStadium) : null;
+        const sponsorNow = Engine.getStadiumSponsorBase(divFactor, f.stadium);
+        const sponsorNext = nextStadium ? Engine.getStadiumSponsorBase(divFactor, nextStadium) : null;
+
+        const stadiumCard = buildCard('stadium', '🏟️', 'Stadion', 'Meer capaciteit = meer tickets, thuisvoordeel én aantrekkelijker voor stadionsponsors.', [
+            impactRow('🎟️ Tickets per thuiswedstrijd', `+${UTILS.fmtMoney(ticketNow)}`, ticketNext !== null ? `+${UTILS.fmtMoney(ticketNext)}` : null),
+            impactRow('💪 Thuisvoordeel (teamsterkte)', `+${bonusNow}`, bonusNext !== null ? `+${bonusNext}` : null),
+            impactRow('🤝 Stadionsponsor-indicatie', `~${UTILS.fmtMoney(sponsorNow)}/wk`, sponsorNext !== null ? `~${UTILS.fmtMoney(sponsorNext)}/wk` : null),
+        ]);
+
+        // --- TRAINING ---
+        const nextTraining = f.training < 8 ? f.training + 1 : null;
+        const slotsNow = Engine.getTrainingSlots(f.training);
+        const slotsNext = nextTraining ? Engine.getTrainingSlots(nextTraining) : null;
+        const growthNow = Engine.getTrainingGrowthRange(f.training);
+        const growthNext = nextTraining ? Engine.getTrainingGrowthRange(nextTraining) : null;
+        const youthUnlocked = f.training >= 3;
+
+        const trainingRows = [
+            impactRow('💪 Groei per sessie', `+${growthNow.min} tot +${growthNow.max} OVR`, growthNext ? `+${growthNext.min} tot +${growthNext.max} OVR` : null),
+            impactRow('👥 Spelers per sessie', `${slotsNow}`, (slotsNext !== null && slotsNext !== slotsNow) ? `${slotsNext}` : null),
+        ];
+        trainingRows.push(youthUnlocked
+            ? impactRow('🎓 Jeugdopleiding', '🔓 Ontgrendeld', null)
+            : impactRow('🎓 Jeugdopleiding', '🔒 Vereist Lvl 3', f.training + 1 >= 3 ? '🔓 Ontgrendeld' : null));
+
+        const trainingCard = buildCard('training', '🏋️', 'Training', 'Meer en snellere spelersgroei, en de sleutel tot je jeugdopleiding.', trainingRows);
+
+        // --- MEDISCH ---
+        const nextMedical = f.medical < 8 ? f.medical + 1 : null;
+        const chanceNow = Engine.getInjuryChance(f.medical);
+        const chanceNext = nextMedical ? Engine.getInjuryChance(nextMedical) : null;
+        const reductionNow = Engine.getInjuryDurationReduction(f.medical);
+        const reductionNext = nextMedical ? Engine.getInjuryDurationReduction(nextMedical) : null;
+
+        const medicalCard = buildCard('medical', '🏥', 'Medische Staf', 'Minder blessures, en als het misgaat: sneller weer fit.', [
+            impactRow('🚑 Blessurekans (per 10 min)', `${(chanceNow * 100).toFixed(1)}%`, chanceNext !== null ? `${(chanceNext * 100).toFixed(1)}%` : null),
+            impactRow('⏱️ Kortere uitvalduur', `-${reductionNow} wk`, (reductionNext !== null && reductionNext !== reductionNow) ? `-${reductionNext} wk` : null),
+        ]);
+
+        d.innerHTML = `<h2>Faciliteiten</h2><div class="facilities-grid">${stadiumCard}${trainingCard}${medicalCard}</div>`;
         return d;
     },
 

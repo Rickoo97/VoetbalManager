@@ -9,7 +9,8 @@ export const Store = {
             id: "player_club", name: "Mijn Club", budget: CONFIG.startBudget, division: 5,
             facilities: { stadium: 1, training: 1, medical: 1 },
             tactic: "neutral",
-            sponsor: null, sponsorOffers: []
+            shirtSponsor: null, shirtSponsorOffers: [],
+            stadiumSponsor: null, stadiumSponsorOffers: []
         },
         board: { 
         confidence: 80,       // Start vertrouwen
@@ -126,6 +127,24 @@ export const Store = {
                     }
                 }
 
+                // 2b. Sponsors: oude saves hadden één 'sponsor'/'sponsorOffers' (shirt).
+                //     Migreer naar shirtSponsor en zorg dat de nieuwe stadionsponsor bestaat.
+                if(this.state.club.sponsor !== undefined || this.state.club.sponsorOffers !== undefined) {
+                    if(this.state.club.shirtSponsor === undefined) this.state.club.shirtSponsor = this.state.club.sponsor || null;
+                    if(!Array.isArray(this.state.club.shirtSponsorOffers) || this.state.club.shirtSponsorOffers.length === 0) {
+                        this.state.club.shirtSponsorOffers = this.state.club.sponsorOffers || [];
+                    }
+                    delete this.state.club.sponsor;
+                    delete this.state.club.sponsorOffers;
+                }
+                if(this.state.club.shirtSponsor === undefined) this.state.club.shirtSponsor = null;
+                if(!Array.isArray(this.state.club.shirtSponsorOffers)) this.state.club.shirtSponsorOffers = [];
+                if(this.state.club.stadiumSponsor === undefined) this.state.club.stadiumSponsor = null;
+                if(!Array.isArray(this.state.club.stadiumSponsorOffers)) this.state.club.stadiumSponsorOffers = [];
+                if(this.state.team && this.state.team.length > 0 && !this.state.club.stadiumSponsor && this.state.club.stadiumSponsorOffers.length === 0) {
+                    Engine.generateStadiumSponsorOffers();
+                }
+
                 // 3. Cup check (voor oude saves die nog geen cup hadden)
                 if(!this.state.cup) {
                     this.state.cup = { active: false, inTournament: false, nextRound: 0, history: [] };
@@ -167,6 +186,10 @@ export const Store = {
         this.state.club.budget = CONFIG.startBudget;
         this.state.club.facilities = { stadium: 1, training: 1, medical: 1 };
         this.state.club.tactic = "neutral";
+        this.state.club.shirtSponsor = null;
+        this.state.club.shirtSponsorOffers = [];
+        this.state.club.stadiumSponsor = null;
+        this.state.club.stadiumSponsorOffers = [];
         this.state.game.day = 1;
         this.state.game.season = 1;
         this.state.game.over = false;
@@ -195,7 +218,8 @@ export const Store = {
         this.state.market = Engine.refreshMarket(15);
         Engine.generateAllSchedules();
         Engine.autoPickLineup();
-        Engine.generateSponsorOffers();
+        Engine.generateShirtSponsorOffers();
+        Engine.generateStadiumSponsorOffers();
         Engine.initCupSeason();
 
         Engine.determineObjective()
