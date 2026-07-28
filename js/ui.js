@@ -437,6 +437,7 @@ export const UI = {
             case 'youth': cont.appendChild(Views.YouthAcademy()); break;
             case 'tactics': cont.appendChild(Views.Tactics()); break;
             case 'league': cont.appendChild(Views.League()); break;
+            case 'topscorers': cont.appendChild(Views.TopScorers()); break;
             case 'fixtures': cont.appendChild(Views.Fixtures()); break;
             case 'club': cont.appendChild(Views.Facilities()); break;
             case 'sponsors': cont.appendChild(Views.Sponsors()); break;
@@ -462,6 +463,7 @@ export const UI = {
             {id:'youth',i:'🎓',l:'Jeugd'},
             {id:'tactics',i:'📋',l:'Tactiek'}, 
             {id:'league',i:'🏆',l:'Competitie'}, 
+            {id:'topscorers',i:'⚽',l:'Topscorers'},
             {id:'fixtures',i:'📅',l:'Programma'}, 
             {id:'club',i:'🏗️',l:'Faciliteiten'}, 
             {id:'sponsors',i:'🤝',l:'Sponsors'}, 
