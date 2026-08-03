@@ -1255,10 +1255,13 @@ playCupMatch() {
         else if(level === 3 || level === 4) { min = 0; max = 2; }
         else { min = 1; max = 2; } // Level 5+: altijd groei op Normaal
 
-        // Op Lastig/Hardcore is training trager (lagere max, soms geen gegarandeerde groei)
+        // Op Lastig/Hardcore is training trager, maar level 1-2 blijft bruikbaar (0–1).
+        // Hogere levels verliezen hun gegarandeerde/extra groei.
         const offset = this.getDifficulty().trainingMaxOffset || 0;
-        max = Math.max(min, max - offset);
-        if(offset > 0 && level >= 5) min = 0;
+        if(offset > 0) {
+            if(level >= 5) { min = 0; max = Math.max(1, max - offset + 1); } // 0–2 of 0–1
+            else if(level >= 3) { max = Math.max(1, max - offset); } // 0–1 i.p.v. 0–2
+        }
         return { min, max };
     },
 
