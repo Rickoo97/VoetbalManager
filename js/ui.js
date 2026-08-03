@@ -26,7 +26,22 @@ export const UI = {
         if(t.closest('#btn-save')) { Store.save(true); return; }
         if(t.closest('#btn-reset')) { Store.reset(); return; }
         if(t.closest('#btn-theme-toggle')) { this.toggleTheme(); return; }
-        if(t.closest('#btn-start')) { Store.startGame(document.getElementById("inp-name").value); return; }
+        if(t.closest('#btn-start')) {
+            const selected = document.querySelector('.diff-card.selected');
+            const difficulty = selected ? selected.dataset.diff : null;
+            Store.startGame(document.getElementById("inp-name").value, difficulty);
+            return;
+        }
+        if(t.closest('.diff-card')) {
+            const card = t.closest('.diff-card');
+            document.querySelectorAll('.diff-card').forEach(c => {
+                c.classList.remove('selected');
+                c.setAttribute('aria-pressed', 'false');
+            });
+            card.classList.add('selected');
+            card.setAttribute('aria-pressed', 'true');
+            return;
+        }
         if(t.closest('#btn-scout')) { Engine.scoutYouth(); return; }
 
         // --- NAV VANUIT "MEER" MENU (mobiel) ---

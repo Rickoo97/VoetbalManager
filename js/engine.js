@@ -4,6 +4,12 @@ import { Store } from './store.js';
 import { UI } from './ui.js'; 
 
 export const Engine = {
+    // Actieve moeilijkheidsgraad (fallback naar Normaal voor oude saves)
+    getDifficulty() {
+        const key = (Store.state.game && Store.state.game.difficulty) || CONFIG.defaultDifficulty || "normal";
+        return CONFIG.difficulties[key] || CONFIG.difficulties.normal;
+    },
+
     generateSquad(n) { 
         let s=[]; 
         // Volg het sjabloon: 2 keepers + een dekkende veldbezetting
@@ -13,9 +19,11 @@ export const Engine = {
         }
         
         // NERF: Verzwak dit team omdat het een startende club in Div 5 is
+        // (sterkte van de nerf hangt af van de moeilijkheidsgraad)
+        const diff = this.getDifficulty();
+        const span = Math.max(0, diff.startPenaltyMax - diff.startPenaltyMin);
         s.forEach(p => {
-            // Trek willekeurig 5 tot 12 punten van alle stats af
-            const penalty = 5 + Math.floor(Math.random() * 8);
+            const penalty = diff.startPenaltyMin + Math.floor(Math.random() * (span + 1));
             this.applyStatPenalty(p, penalty);
         });
 
@@ -38,9 +46,10 @@ export const Engine = {
         p.wage = this.calcWage(p);
     },
 
-    // Salaris: schaalt met waarde én rating, zodat lonen echt drukken op het budget
+    // Salaris: schaalt met waarde én rating, en met de moeilijkheidsgraad
     calcWage(p) {
-        return Math.round(p.value / 150 + p.ovr * 5);
+        const base = p.value / 150 + p.ovr * 5;
+        return Math.round(base * this.getDifficulty().wageMult);
     },
 
     isYouthTeam(name) {
@@ -740,7 +749,7 @@ createPlayer(posOverride, ageOverride) {
             offers.push({ 
                 id: UTILS.rid(), 
                 name: UTILS.choice(pool), 
-                amount: Math.round(15000 * divFactor + UTILS.rand(-2000, 5000)), 
+                amount: Math.round((15000 * divFactor + UTILS.rand(-2000, 5000)) * this.getDifficulty().sponsorMult), 
                 duration: UTILS.rand(10, 34),
                 negotiated: false
             });
@@ -763,7 +772,7 @@ createPlayer(posOverride, ageOverride) {
             offers.push({
                 id: UTILS.rid(),
                 name: `${company} ${suffix}`,
-                amount: Math.round(base + UTILS.rand(-1500, 4000)),
+                amount: Math.round(base + UTILS.rand(-1500, 4000) * this.getDifficulty().sponsorMult),
                 duration: UTILS.rand(15, 40), // naamgevingsrechten lopen doorgaans langer
                 negotiated: false
             });
@@ -774,7 +783,7 @@ createPlayer(posOverride, ageOverride) {
     // Basiswaarde voor stadionsponsor-aanbiedingen (gedeeld met de Faciliteiten-weergave
     // zodat de getoonde schatting altijd overeenkomt met de echte aanbiedingen)
     getStadiumSponsorBase(divFactor, stadiumLevel) {
-        return Math.round(12000 * divFactor * (1 + 0.5 * (stadiumLevel - 1)));
+        return Math.round(12000 * divFactor * (1 + 0.5 * (stadiumLevel - 1)) * this.getDifficulty().sponsorMult);
     },
 
     scoutYouth() {
@@ -813,12 +822,14 @@ createPlayer(posOverride, ageOverride) {
         let greedFactor = 0.95 + (seed % 31) / 100; // 0.95 - 1.25
         if(p.age < 23) greedFactor += 0.1; // Jong talent is duurder
         if(p.age > 32) greedFactor -= 0.1; // Oude rot is goedkoper
+        greedFactor += this.getDifficulty().bidGreedBonus;
         return Math.round(p.value * greedFactor);
     },
 
 placeBid(id) {
         const p = Store.state.market.find(x=>x.id===id); if(!p) return;
         const myDiv = Store.state.club.division; // Jouw divisie (bijv. 5)
+        const ambitionStrict = this.getDifficulty().ambitionExtraStrict;
 
         // --- AMBITIE & REALISME CHECK ---
         
@@ -834,19 +845,25 @@ placeBid(id) {
 
         // Stap C: De Leeftijdsfactor
         // Jongeren (t/m 23) zijn arrogant/ambitieus. Ouderen (30+) zijn chill.
+        // Op Lastig/Hardcore is de tolerantie 1 divisie strakker.
         let refusalReason = null;
 
         if (gap > 0) { // Jij speelt lager dan het niveau van de speler
             if (p.age <= 23) {
-                // JONGE TALENTEN: Accepteren maximaal 1 divisie lager, anders weigeren ze.
-                if(gap > 1) refusalReason = `"Ik ben ${p.age} en heb veel talent (${p.ovr}). Ik ga mijn carrière niet vergooien in Divisie ${myDiv}!"`;
+                // JONGE TALENTEN: Accepteren maximaal 1 divisie lager (0 op Hardcore-achtige settings)
+                const maxGap = Math.max(0, 1 - ambitionStrict);
+                if(gap > maxGap) refusalReason = `"Ik ben ${p.age} en heb veel talent (${p.ovr}). Ik ga mijn carrière niet vergooien in Divisie ${myDiv}!"`;
             } 
             else if (p.age >= 30) {
-                // OUDEREN: Accepteren bijna alles, zolang je betaalt.
+                // OUDEREN: Accepteren bijna alles, zolang je betaalt — behalve op Hardcore
+                if(ambitionStrict >= 1 && gap > 3) {
+                    refusalReason = `"Zelfs voor een veteran is Divisie ${myDiv} een stap te ver."`;
+                }
             } 
             else {
                 // PRIME LEEFTIJD (24-29): Accepteren maximaal 2 divisies lager.
-                if(gap > 2) refusalReason = `"Ik ben in de kracht van mijn leven. Divisie ${myDiv} is echt een stap te ver terug."`;
+                const maxGap = Math.max(0, 2 - ambitionStrict);
+                if(gap > maxGap) refusalReason = `"Ik ben in de kracht van mijn leven. Divisie ${myDiv} is echt een stap te ver terug."`;
             }
         }
 
@@ -1009,16 +1026,17 @@ placeBid(id) {
         for(let d=1; d<=5; d++){ 
             let teams = []; 
             
+            const aiBonus = this.getDifficulty().aiStrengthBonus;
             if(CONFIG.realLeagues[d]) {
                 CONFIG.realLeagues[d].forEach(n => {
                     // Echte clubs (Div 1 & 2) iets sterker maken
-                    teams.push(mkTeam(n, d===1?82:74, true)); 
+                    teams.push(mkTeam(n, (d===1?82:74) + aiBonus, true)); 
                 });
             } else {
                 // Fictieve competities (Div 3, 4, 5)
                 const size = 18; 
-                // Div 3=64, Div 4=57, Div 5=50
-                const baseStr = 85 - (d * 7); 
+                // Div 3=64, Div 4=57, Div 5=50 (+ moeilijkheidsbonus)
+                const baseStr = 85 - (d * 7) + aiBonus; 
                 
                 for(let i=0; i<size; i++) {
                     // We voegen variatie toe: sommige teams zijn 55, anderen 49
@@ -1215,9 +1233,9 @@ playCupMatch() {
         return (rates[type] || 0) * level;
     },
 
-    // Tickets per thuiswedstrijd (schaalt met divisie én stadionniveau)
+    // Tickets per thuiswedstrijd (schaalt met divisie, stadionniveau én moeilijkheid)
     getTicketIncomeEstimate(division, stadiumLevel) {
-        return Math.round(4000 * (6 - division) * (1 + 0.35 * (stadiumLevel - 1)));
+        return Math.round(4000 * (6 - division) * (1 + 0.35 * (stadiumLevel - 1)) * this.getDifficulty().ticketMult);
     },
 
     // Extra teamsterkte thuis door een groter stadion
@@ -1232,9 +1250,19 @@ playCupMatch() {
     },
 
     getTrainingGrowthRange(level) {
-        if(level === 1 || level === 2) return { min: 0, max: 1 };
-        if(level === 3 || level === 4) return { min: 0, max: 2 };
-        return { min: 1, max: 2 }; // Level 5+: altijd groei
+        let min, max;
+        if(level === 1 || level === 2) { min = 0; max = 1; }
+        else if(level === 3 || level === 4) { min = 0; max = 2; }
+        else { min = 1; max = 2; } // Level 5+: altijd groei op Normaal
+
+        // Op Lastig/Hardcore is training trager, maar level 1-2 blijft bruikbaar (0–1).
+        // Hogere levels verliezen hun gegarandeerde/extra groei.
+        const offset = this.getDifficulty().trainingMaxOffset || 0;
+        if(offset > 0) {
+            if(level >= 5) { min = 0; max = Math.max(1, max - offset + 1); } // 0–2 of 0–1
+            else if(level >= 3) { max = Math.max(1, max - offset); } // 0–1 i.p.v. 0–2
+        }
+        return { min, max };
     },
 
     getInjuryChance(medicalLevel) {
@@ -1372,16 +1400,17 @@ processMatchday() {
     },
 
     determineObjective() {
-        const div = Store.state.club.division;
         const ovr = this.calculatePlayerTeamStrength();
+        const shift = this.getDifficulty().objectiveShift; // negatief = strenger
         
-        // Simpele logica: Hoe goed is je team?
+        // Simpele logica: Hoe goed is je team? Op Lastig/Hardcore ligt de lat hoger.
         let objText = "Handhaven";
-        let objRank = 14; // Veilig
+        let objRank = Math.max(1, 14 + shift); // Normaal: top 14; Lastig: top 11; Hardcore: top 9
         
         if(ovr > 80) { objText = "Kampioen worden"; objRank = 1; }
-        else if(ovr > 70) { objText = "Promoveren / Top 3"; objRank = 3; }
-        else if(ovr > 60) { objText = "Linkerrijtje (Top 9)"; objRank = 9; }
+        else if(ovr > 70) { objText = "Promoveren / Top 3"; objRank = Math.max(1, 3 + Math.min(0, shift + 2)); }
+        else if(ovr > 60) { objText = "Linkerrijtje (Top 9)"; objRank = Math.max(1, 9 + shift); }
+        else if(ovr > 52 && shift < 0) { objText = "Top 12"; objRank = Math.max(1, 12 + shift); }
         
         Store.state.board.objective = objText;
         Store.state.board.objectiveRank = objRank;
@@ -1392,6 +1421,7 @@ processMatchday() {
         const board = Store.state.board;
         const lastMatch = Store.state.results.find(r => r.isYou);
         if(!lastMatch) return; // Geen wedstrijd gespeeld (bv. vrijgeloot)
+        const diff = this.getDifficulty();
 
         // Kijk naar de HUIDIGE positie in de competitie
         // (kopie zodat we de opgeslagen volgorde niet muteren)
@@ -1401,14 +1431,26 @@ processMatchday() {
         const myRank = table.findIndex(t => t.id === Store.state.club.id) + 1;
         
         if(myRank <= board.objectiveRank) {
-            board.confidence = Math.min(100, board.confidence + 2);
+            board.confidence = Math.min(100, board.confidence + diff.confGain);
         } else {
             // Hoe ver zit je eronder?
-            const diff = myRank - board.objectiveRank;
-            let penalty = 2;
-            if(diff > 5) penalty = 5; // Zware straf als je stijf onderaan staat
+            const gap = myRank - board.objectiveRank;
+            let penalty = diff.confLoss;
+            if(gap > 5) penalty = diff.confLossHeavy; // Zware straf als je stijf onderaan staat
             
             board.confidence = Math.max(0, board.confidence - penalty);
+        }
+
+        // Vormswing: recente uitslagen wegen zwaarder op Lastig/Hardcore
+        if(diff.formSwing) {
+            const iAmHome = lastMatch.home === Store.state.club.name;
+            const mine = iAmHome ? lastMatch.score[0] : lastMatch.score[1];
+            const theirs = iAmHome ? lastMatch.score[1] : lastMatch.score[0];
+            if(mine > theirs && myRank <= board.objectiveRank) {
+                board.confidence = Math.min(100, board.confidence + 1);
+            } else if(mine < theirs && myRank > board.objectiveRank) {
+                board.confidence = Math.max(0, board.confidence - 2);
+            }
         }
 
         // Rode cijfers? Het bestuur wordt onrustig.
@@ -1513,10 +1555,12 @@ processMatchday() {
         Store.state.manager.jobOffers = candidates.slice(0, 4);
     },
 
-    // Startbudget dat hoort bij het niveau van een club
+    // Startbudget dat hoort bij het niveau van een club (schaalt met moeilijkheid)
     jobStartBudget(division) {
         const table = { 1: 900000, 2: 500000, 3: 250000, 4: 130000, 5: 80000 };
-        return table[division] || 80000;
+        const base = table[division] || 80000;
+        const ratio = this.getDifficulty().startBudget / CONFIG.difficulties.normal.startBudget;
+        return Math.round(base * ratio);
     },
 
     // Vrijwillig rondkijken naar een andere club, zonder ontslagen te worden
@@ -1648,6 +1692,7 @@ simulateTransfers() {
         // geaccepteerd bod 'pending' tot de window opengaat (zie processPendingDeals/acceptOffer).
         const windowOpen = this.isTransferWindowOpen();
         const chanceMultiplier = windowOpen ? 1 : 0.4;
+        const offerMult = this.getDifficulty().aiOfferMult;
 
         Store.state.team.forEach(p => {
             if(this.hasPendingSale(p.id)) return; // al verkocht, wacht op window
@@ -1659,7 +1704,7 @@ simulateTransfers() {
                 for(let d=1; d<=5; d++) if(Store.state.competitions[d]) allAIClubs.push(...Store.state.competitions[d].filter(c => c.id !== Store.state.club.id));
                 if(allAIClubs.length === 0) return; 
                 const buyer = UTILS.choice(allAIClubs);
-                const factor = 0.9 + (Math.random() * 0.4);
+                const factor = (0.9 + (Math.random() * 0.4)) * offerMult;
                 const amount = Math.round(p.value * factor);
                 Store.state.incomingOffers.push({ id: UTILS.rid(), playerId: p.id, playerName: p.name, club: buyer.name, amount: amount });
                 UI.toast(`📩 Bod van ${buyer.name} op ${p.name}!`);
@@ -1835,6 +1880,9 @@ generateNews() {
         // Stadion bonus (alleen als de speler thuis speelt)
         if(isPlayerHome) hStr += this.getStadiumMatchBonus(Store.state.club.facilities.stadium);
 
+        // AI-thuisvoordeel wanneer jíj uit speelt (compenseert je stadionbonus)
+        if(isPlayerAway) hStr += this.getDifficulty().aiHomeBonus;
+
         // --- TACTIEK: steen-papier-schaar tegen een random AI tactiek ---
         let note = "";
         let myTacConfig = null;
@@ -1993,7 +2041,7 @@ endSeason() {
             // Dit blok regelt geld en historie. Dit mag ALLEEN gebeuren voor jouw divisie.
             const myPos = table.findIndex(x => x.id === Store.state.club.id);
             if(myPos > -1) {
-                const prize = CONFIG.prizePerPlace[d] * (table.length - myPos);
+                const prize = Math.round(CONFIG.prizePerPlace[d] * (table.length - myPos) * this.getDifficulty().prizeMult);
                 Store.state.club.budget += prize;
                 msg += `<br>Je bent geëindigd op plek <strong>${myPos + 1}</strong> in Divisie ${d}.<br>Bonus: <strong>${UTILS.fmtMoney(prize)}</strong><br>`;
                 

@@ -5,10 +5,31 @@ import { Engine } from './engine.js';
 
 export const Views = {
     Welcome() {
-        const d=document.createElement('div'); d.className="card"; d.style.textAlign="center"; d.style.maxWidth="400px"; d.style.margin="100px auto";
-        // Visuele upgrade: Een groot logo boven de titel
+        const d=document.createElement('div'); d.className="card"; d.style.textAlign="center"; d.style.maxWidth="480px"; d.style.margin="60px auto";
         const demoLogo = UTILS.getClubBadge("FC Start", 60);
-        d.innerHTML=`${demoLogo}<h1 style="margin-top:15px">${CONFIG.gameTitle}</h1><p class="muted">Start je carrière.</p><div style="margin:30px 0"><label style="display:block;margin-bottom:10px">Clubnaam</label><input type="text" id="inp-name" value="FC Breda" style="padding:10px;width:100%;border-radius:8px;border:1px solid #444;background:var(--bg-body);color:var(--text-main)"></div><button class="primary" id="btn-start" style="width:100%">Start Carrière</button>`;
+        const defaultDiff = CONFIG.defaultDifficulty;
+        let diffCards = "";
+        Object.values(CONFIG.difficulties).forEach(diff => {
+            const selected = diff.id === defaultDiff ? " selected" : "";
+            const badge = diff.id === "hard" ? `<span class="diff-badge">Aanbevolen</span>` : "";
+            diffCards += `
+                <button type="button" class="diff-card${selected}" data-diff="${diff.id}" aria-pressed="${diff.id === defaultDiff}">
+                    ${badge}
+                    <strong>${diff.label}</strong>
+                    <span class="muted">${diff.desc}</span>
+                    <span class="diff-meta">Startbudget ${UTILS.fmtMoney(diff.startBudget)}</span>
+                </button>`;
+        });
+        d.innerHTML=`${demoLogo}<h1 style="margin-top:15px">${CONFIG.gameTitle}</h1><p class="muted">Start je carrière.</p>
+            <div style="margin:24px 0 8px;text-align:left">
+                <label style="display:block;margin-bottom:10px">Clubnaam</label>
+                <input type="text" id="inp-name" value="FC Breda" style="padding:10px;width:100%;border-radius:8px;border:1px solid #444;background:var(--bg-body);color:var(--text-main)">
+            </div>
+            <div style="margin:20px 0;text-align:left">
+                <label style="display:block;margin-bottom:10px">Moeilijkheid</label>
+                <div class="diff-grid" id="diff-picker">${diffCards}</div>
+            </div>
+            <button class="primary" id="btn-start" style="width:100%">Start Carrière</button>`;
         return d;
     },
 
@@ -98,6 +119,7 @@ export const Views = {
         }
 
         const board = Store.state.board || { confidence: 80, objective: "Geen" };
+        const diffLabel = Engine.getDifficulty().label;
     
     // Kleur bepalen: Groen, Oranje of Rood
     let barColor = "#22c55e"; // Groen
@@ -109,7 +131,7 @@ export const Views = {
     <div class="card">
         <div style="display:flex; justify-content:space-between; margin-bottom:5px">
             <strong>Bestuur & Verwachting</strong>
-            <span style="font-size:12px" class="muted">Doel: ${board.objective}</span>
+            <span style="font-size:12px" class="muted">Doel: ${board.objective} · ${diffLabel}</span>
         </div>
         <div style="background:#334155; height:10px; border-radius:5px; overflow:hidden; position:relative">
             <div style="background:${barColor}; width:${board.confidence}%; height:100%; transition: width 0.3s"></div>
@@ -880,6 +902,7 @@ export const Views = {
     Settings() {
         const d = document.createElement('div');
         const m = Store.state.manager;
+        const diff = Engine.getDifficulty();
         const careerCard = (m && !m.unemployed) ? `
         <div class="card">
             <h3>💼 Managerscarrière</h3>
@@ -890,6 +913,10 @@ export const Views = {
         d.innerHTML = `
         <h2>⚙️ Instellingen</h2>
         ${careerCard}
+        <div class="card">
+            <h3>🎚️ Moeilijkheid</h3>
+            <p class="muted" style="font-size:13px">Deze carrière draait op <strong>${diff.label}</strong>. ${diff.desc}<br>Moeilijkheid kies je alleen bij het starten van een nieuwe carrière.</p>
+        </div>
         <div class="card">
             <h3>💾 Save exporteren</h3>
             <p class="muted" style="font-size:13px">Genereer een save-code om je carrière over te zetten naar een ander apparaat (bijv. van PC naar telefoon), of als back-up.</p>
