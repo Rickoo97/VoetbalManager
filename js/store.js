@@ -4,7 +4,7 @@ import { UI } from './ui.js';
 
 export const Store = {
     state: {
-        game: { day: 1, season: 1, over: false },
+        game: { day: 1, season: 1, over: false, difficulty: CONFIG.defaultDifficulty },
         club: { 
             id: "player_club", name: "Mijn Club", budget: CONFIG.startBudget, division: 5,
             facilities: { stadium: 1, training: 1, medical: 1 },
@@ -59,6 +59,10 @@ export const Store = {
                 if(!Array.isArray(this.state.pendingSignings)) this.state.pendingSignings = [];
                 if(!Array.isArray(this.state.pendingSales)) this.state.pendingSales = [];
                 if(this.state.game.over === undefined) this.state.game.over = false;
+                // Oude saves: behoud de klassieke (Normaal) balans
+                if(!this.state.game.difficulty || !CONFIG.difficulties[this.state.game.difficulty]) {
+                    this.state.game.difficulty = "normal";
+                }
                 if(!this.state.manager || typeof this.state.manager !== 'object') {
                     this.state.manager = { reputation: 50, unemployed: false, browsing: false, jobOffers: [] };
                 }
@@ -179,11 +183,17 @@ export const Store = {
         UI.applyTheme();
     },
 
-    startGame(customName) {
+    startGame(customName, difficultyKey) {
         // Sanitize: naam wordt in HTML gebruikt, dus geen speciale tekens
         const cleanName = (customName || "").replace(/[<>&"']/g, "").trim().slice(0, 30);
+        const diffKey = (difficultyKey && CONFIG.difficulties[difficultyKey])
+            ? difficultyKey
+            : CONFIG.defaultDifficulty;
+        const diff = CONFIG.difficulties[diffKey];
+
         this.state.club.name = cleanName || "Mijn Club FC";
-        this.state.club.budget = CONFIG.startBudget;
+        this.state.game.difficulty = diffKey;
+        this.state.club.budget = diff.startBudget;
         this.state.club.facilities = { stadium: 1, training: 1, medical: 1 };
         this.state.club.tactic = "neutral";
         this.state.club.shirtSponsor = null;
